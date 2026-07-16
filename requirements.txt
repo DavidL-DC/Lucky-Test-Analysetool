@@ -1,0 +1,2 @@
+# Für die Planungsphase und den vorgesehenen MVP werden keine externen Pakete benötigt.
+
