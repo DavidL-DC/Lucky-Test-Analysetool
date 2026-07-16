@@ -2,7 +2,7 @@
 
 ## 1. Zielbild
 
-Das Lucky Test Analysetool ist eine lokale Windows-Desktop-Anwendung. Sie bündelt regelmäßig erfasste Kennzahlen der iOS-App und der zugehörigen TikTok-, Instagram- und YouTube-Kanäle. Der unmittelbare Nutzen ist eine gemeinsame, schnell erfassbare Übersicht statt einer vollautomatischen Datenerfassung.
+Das Lucky Test Analysetool ist eine lokale Windows-Desktop-Anwendung. Beim Start ruft sie über offizielle Schnittstellen die neuesten verfügbaren Kennzahlen der iOS-App und der zugehörigen TikTok-, Instagram- und YouTube-Kanäle ab. Nach der einmaligen Kontoeinrichtung sieht der Nutzer das Dashboard ohne manuelle Datenpflege.
 
 ## 2. Nutzer und Kernfragen
 
@@ -18,48 +18,42 @@ Primärer Nutzer ist der Betreiber von Lucky Test. Das Dashboard soll beantworte
 - Betrieb lokal unter Windows in VS Code, später optional als Desktop-Paket.
 - Möglichst keine laufenden Kosten.
 - Für Social Media stehen nur normale Privataccounts zur Verfügung.
-- Der MVP hängt nicht von eingeschränkten APIs, Scraping oder Login-Automationen ab.
+- Ausschließlich offizielle APIs und OAuth-Verfahren; kein Scraping und keine inoffizielle Login-Automation.
+- Konten, API-Apps, Berechtigungen und Tokens müssen einmalig eingerichtet werden.
+- Instagram muss für Insights als Creator- oder Business-Konto geführt werden; ein normales Privatkonto reicht nicht.
 - Keine Cloud-, Mehrbenutzer-, Posting-, Benachrichtigungs- oder KI-Funktionen im MVP.
 
-## 4. Datenstrategie
+## 4. Automatische Datenstrategie
 
-### MVP: manueller CSV-Import
+| Quelle | Offizieller Datenweg | Voraussetzungen | Automatisierbare MVP-Daten | Einschätzung |
+| --- | --- | --- | --- | --- |
+| App Store | App Store Connect API / Analytics Reports API | aktives Developer-Konto, API-Schlüssel, geeignete Rolle | Downloads, Installationen, Updates, Reviews; weitere Analytics je Verfügbarkeit | gut machbar, Berichte können zeitversetzt sein |
+| YouTube | YouTube Data API und YouTube Analytics API | Google-Cloud-Projekt, OAuth-Zustimmung des Kanalinhabers | Kanal-, Video-, View-, Like-, Kommentar-, Share- und Watchtime-Werte | gut machbar innerhalb des Kontingents |
+| TikTok | TikTok Display API | Developer-Konto, registrierte und freigegebene App, Login Kit, OAuth-Scopes | eigene Videos, Views, Likes, Kommentare und Shares | machbar, aber Freigabe und Tokenpflege sind Hürden |
+| Instagram | Instagram API mit Instagram Login | Creator-/Business-Konto, Meta-App, OAuth und Insights-Berechtigung | Konto- und Medien-Insights wie Reichweite, Aufrufe und Interaktionen | mit Privatkonto nicht machbar; Kontoumstellung erforderlich |
 
-Der Nutzer überträgt Kennzahlen aus den jeweiligen Plattformansichten oder verfügbaren Exporten in definierte CSV-Vorlagen. Das Tool validiert und speichert diese Daten lokal. So bleibt der Datenweg kostenlos, nachvollziehbar und unabhängig von API-Berechtigungen für Privataccounts.
+Der Abruf startet automatisch beim Öffnen der Anwendung und kann zusätzlich über „Jetzt aktualisieren“ ausgelöst werden. Jede Antwort wird mit Abrufzeitpunkt als Snapshot in SQLite gespeichert. So bleiben Zeitverläufe erhalten, auch wenn eine API nur aktuelle Zähler liefert.
 
-| Quelle | Kennzahlen im MVP | Granularität |
-| --- | --- | --- |
-| App Store | Downloads, Updates, Bewertung, Bewertungsanzahl | Tag |
-| TikTok | Aufrufe, Likes, Kommentare, Shares | Beitrag und Stichtag |
-| Instagram | Aufrufe/Reichweite, Likes, Kommentare | Beitrag und Stichtag |
-| YouTube | Aufrufe, Likes, Kommentare | Video und Stichtag |
-
-Jede Zeile benötigt mindestens `datum`, `quelle` und die passenden numerischen Felder. Beitragsdaten erhalten zusätzlich `beitrag_id` sowie optional `titel` und `url`.
-
-### Später prüfbare Automatisierung
-
-- App Store Connect API, falls ein geeigneter Zugang und API-Schlüssel vorhanden sind.
-- Offizielle Plattform-APIs nur nach Prüfung von Accounttyp, Berechtigungen und Kosten.
-- HTML-Scraping bleibt ausgeschlossen.
+„Aktuell“ bedeutet der neueste von der Plattform bereitgestellte Stand. Einige Plattformberichte werden verzögert verarbeitet; das Dashboard zeigt deshalb je Quelle `aktualisiert am`, `Datenstand` und den Zustand `aktuell`, `verzögert` oder `Fehler`.
 
 ## 5. Funktionale Anforderungen
 
 ### Muss im MVP
 
-1. CSV-Datei auswählen und Quelle zuordnen.
-2. Pflichtspalten, Datumswerte und Zahlen prüfen und Fehler mit Zeilenbezug anzeigen.
-3. Eine Vorschau anzeigen, bevor Daten gespeichert werden.
-4. Gültige Datensätze idempotent in SQLite speichern; erneuter Import erzeugt keine Duplikate.
-5. Aktuellen Stand und letzten erfolgreichen Import pro Quelle anzeigen.
-6. Entwicklung in einem auswählbaren Standardzeitraum darstellen.
-7. Top-Beiträge nach Aufrufen und Interaktionsrate anzeigen.
-8. Gespeicherte Daten wieder als CSV exportieren.
+1. Einrichtungsassistent für App-IDs, Kanal-IDs und OAuth-Verbindungen.
+2. Tokens und Schlüssel lokal geschützt beziehungsweise über Umgebungsvariablen einlesen und niemals in Git speichern.
+3. Beim Start alle konfigurierten Quellen parallel aktualisieren, ohne die Oberfläche zu blockieren.
+4. API-Antworten prüfen, normalisieren und als zeitgestempelte Snapshots in SQLite speichern.
+5. Fortschritt, letzten erfolgreichen Abruf und Fehler pro Quelle anzeigen.
+6. Bei einem Abruffehler die letzten gültigen Werte deutlich als veraltet anzeigen.
+7. Dashboard mit aktuellem Stand, Zeitverlauf, Top-Beiträgen und Interaktionsrate anzeigen.
+8. Manuelle Aktualisierung und CSV-Export der gespeicherten Daten anbieten.
 
 ### Soll nach dem MVP
 
 - frei wählbare Zeiträume und Zeitvergleiche
 - Filter nach Plattform und Beitrag
-- automatischer App-Store-Import über eine offizielle API
+- geplante Hintergrundaktualisierung in einem wählbaren Intervall
 - Paketierung als Windows-EXE
 
 ## 6. Kennzahlen und Regeln
@@ -94,33 +88,50 @@ Vorgesehene Eindeutigkeitsschlüssel:
 
 ## 9. Bedienablauf
 
-1. Anwendung starten.
-2. Unter „Import“ Quelle und CSV-Datei wählen.
-3. Vorschau und Validierungsergebnis prüfen.
-4. Import bestätigen.
-5. Dashboard zeigt aktualisierte Kennzahlen und Importstatus.
-6. Bei Bedarf gefilterte Daten exportieren.
+1. Beim ersten Start die vier Quellen im Einrichtungsassistenten verbinden.
+2. Anwendung später normal starten.
+3. Das Dashboard öffnet sofort mit den zuletzt gespeicherten Werten.
+4. Im Hintergrund werden alle Quellen aktualisiert und einzeln als erfolgreich oder fehlerhaft markiert.
+5. Neue Werte und Zeitverläufe erscheinen ohne weitere Eingabe.
+6. Bei Bedarf „Jetzt aktualisieren“ oder CSV-Export verwenden.
 
 ## 10. Umsetzungsplan
 
-### Phase 1 – vertikaler Kern
+### Phase 0 – Zugänge und Machbarkeitsnachweis
+
+- Instagram-Konto auf Creator oder Business umstellen.
+- Developer-Projekte bei Apple, Google, TikTok und Meta anlegen.
+- Benötigte Rollen, Scopes und OAuth-Weiterleitungen konfigurieren.
+- Je Plattform einen minimalen Testabruf mit dem echten Lucky-Test-Konto durchführen.
+- Verfügbare Felder, Datenverzögerung und Kontingente protokollieren.
+
+**Entscheidungstor:** Erst wenn alle vier Testabrufe funktionieren, ist „alles automatisch“ verbindlich erreichbar. Scheitert eine Plattformfreigabe, kann diese Quelle ohne Scraping nicht automatisiert werden.
+
+### Phase 1 – App Store und technischer Kern
 
 - Paketstruktur und Startfenster anlegen.
 - SQLite-Schema und Datenzugriff implementieren.
-- Dokumentierte Beispiel-CSV für App-Store-Tageswerte bereitstellen.
-- Validierung, Vorschau und idempotenten Import umsetzen.
-- Aktuelle App-Store-Kennzahlen tabellarisch anzeigen.
-- Unit-Tests für Validierung und Duplikatbehandlung ergänzen.
+- sichere lokale Konfiguration und Tokenverwaltung anlegen.
+- App-Store-Connect-Client und automatischen Startabruf implementieren.
+- Abrufstatus, letzte gültige Daten und App-Store-Kennzahlen anzeigen.
+- Tests mit gespeicherten Beispielantworten statt echten API-Aufrufen ergänzen.
 
-**Ergebnis:** Ein vollständiger Ablauf von CSV-Auswahl bis Anzeige.
+**Ergebnis:** Ein vollständiger automatischer Ablauf vom Programmstart bis zur Anzeige.
 
-### Phase 2 – Social Media und Dashboard
+### Phase 2 – YouTube
 
-- CSV-Profile für TikTok, Instagram und YouTube ergänzen.
-- Kennzahlenkarten, Zeitverlauf und Top-Beiträge erstellen.
-- Zeitraum- und Quellenfilter ergänzen.
+- OAuth-Verbindung und Token-Erneuerung umsetzen.
+- Kanal-, Video- und Analytics-Kennzahlen abrufen.
+- Dashboard um Zeitverlauf und Top-Videos erweitern.
 
-### Phase 3 – Nutzbarkeit und Auslieferung
+### Phase 3 – TikTok und Instagram
+
+- TikTok-OAuth, Videoabruf und Zähler-Snapshots integrieren.
+- Instagram-OAuth sowie Konto- und Medien-Insights integrieren.
+- Teilfehler, abgelaufene Tokens und erneute Autorisierung sauber behandeln.
+- Quellenvergleich und gemeinsame Kennzahlen ergänzen.
+
+### Phase 4 – Stabilisierung und Auslieferung
 
 - CSV-Export und Datenbank-Sicherung ergänzen.
 - Fehlerführung und leere Zustände überarbeiten.
@@ -129,28 +140,39 @@ Vorgesehene Eindeutigkeitsschlüssel:
 ## 11. Abnahmekriterien für Phase 1
 
 - Start über `python -m lucky_analyzer` funktioniert in der virtuellen Umgebung.
-- Eine gültige Beispiel-CSV wird ohne externe Abhängigkeiten importiert.
-- Fehlerhafte Datums- oder Zahlenwerte werden mit Zeilenbezug abgelehnt.
-- Derselbe Import verdoppelt keine Datensätze.
-- Das Fenster zeigt Downloads, Bewertung, Bewertungsanzahl und letzten Import.
+- Der App-Store-Abruf startet automatisch und blockiert die Oberfläche nicht.
+- API- und Netzwerkfehler löschen keine bereits gespeicherten Werte.
+- Derselbe API-Datenstand erzeugt keine doppelten Snapshots.
+- Das Fenster zeigt Downloads, Bewertung, Bewertungsanzahl und letzten erfolgreichen Abruf.
 - `python -m unittest` läuft erfolgreich.
 
 ## 12. Risiken und Gegenmaßnahmen
 
 | Risiko | Auswirkung | Gegenmaßnahme im MVP |
 | --- | --- | --- |
-| Plattformen bieten für Privataccounts keine geeigneten Exporte | Daten müssen manuell übertragen werden | feste CSV-Vorlagen mit verständlicher Anleitung |
-| Kennzahlen heißen je Plattform unterschiedlich | falsche Vergleiche | Quellfelder dokumentieren und intern normalisieren |
-| Kumulative Werte werden mit Tageswerten verwechselt | irreführende Trends | Wertart in Vorlage und Oberfläche sichtbar machen |
-| Plattformansichten ändern sich | Importvorlage passt nicht mehr | kleine, getrennte Quellprofile und klare Validierungsfehler |
-| Manuelle Erfassung ist unregelmäßig | Lücken im Verlauf | letzten Import und Datenlücken deutlich anzeigen |
+| Instagram-Privatkonto liefert keine Insights-API | Instagram kann nicht automatisch aktualisiert werden | vor Implementierung auf Creator/Business umstellen |
+| TikTok oder Meta genehmigen App/Scopes nicht | Quelle bleibt ohne Scraping unzugänglich | Phase-0-Test und ausreichend Zeit für Review einplanen |
+| OAuth-Token läuft ab oder wird widerrufen | Abruf fällt aus | Refresh-Token, erneute Anmeldung und klarer Status |
+| Plattform-API oder Felddefinition ändert sich | Abruf oder Vergleich bricht | getrennte API-Clients, Versionierung und Vertragstests |
+| API-Kontingent wird überschritten | temporär keine neuen Werte | sparsame Abrufe, Caching und Kontingentanzeige |
+| Plattformdaten sind verzögert oder aus Datenschutzgründen unvollständig | Dashboard ist nicht sekundengenau | Datenstand und Abdeckungsgrenzen sichtbar anzeigen |
+| Lokale Tokens werden entwendet | Zugriff auf Kontodaten | minimale Scopes, keine Secrets in Git, restriktive lokale Speicherung |
 
-## 13. Offene fachliche Entscheidungen
+## 13. Kostenrahmen
+
+- Python, Tkinter, SQLite und der lokale Betrieb benötigen keine bezahlte Software.
+- Ein dauerhaft laufender Server ist für „Abruf beim Start“ nicht nötig.
+- Die APIs sind im vorgesehenen kleinen Abrufumfang grundsätzlich ohne nutzungsabhängige Gebühr planbar, unterliegen aber Kontingenten und Plattformregeln.
+- Das Apple Developer Program kostet regulär 99 USD pro Jahr; für eine bereits veröffentlichte iOS-App besteht diese Mitgliedschaft üblicherweise ohnehin.
+- Creator-/Business-Umstellung bei Instagram ist grundsätzlich kein Hostingposten, kann aber Auswirkungen auf Kontofunktionen und Datenschutz-/Unternehmensangaben haben.
+- Nicht kalkulierbar sind eigener Einrichtungsaufwand, mögliche Review-Verzögerungen und zukünftige Preis- oder API-Änderungen der Plattformen.
+
+## 14. Offene fachliche Entscheidungen
 
 Diese Fragen blockieren die technische Grundstruktur nicht, müssen aber vor den jeweiligen Importprofilen bestätigt werden:
 
-1. Welche App-Store-Exportansicht steht tatsächlich zur Verfügung und welche Spalten enthält sie?
-2. Bedeutet „Downloads“ Erstdownloads, Gesamtdownloads oder App Units?
-3. Werden Social-Media-Werte regelmäßig pro Beitrag erfasst oder genügt zunächst ein täglicher Kanalgesamtstand?
+1. Kann und soll das Instagram-Konto auf Creator oder Business umgestellt werden?
+2. Wer besitzt die Adminrechte für App Store Connect sowie die Google-, TikTok- und Meta-Developer-Projekte?
+3. Bedeutet „Downloads“ Erstdownloads, Gesamtdownloads oder App Units?
 4. Welche Standardzeiträume sind am wichtigsten, beispielsweise 7, 30 und 90 Tage?
 5. Sollen Reichweite und Aufrufe getrennt oder als plattformspezifische Hauptkennzahl gezeigt werden?
