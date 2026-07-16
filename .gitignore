@@ -2,7 +2,11 @@
 __pycache__/
 *.py[cod]
 *.db
+*.sqlite
 *.sqlite3
+*.csv
+!.gitkeep
+!examples/*.csv
 .idea/
 .vscode/
 dist/
