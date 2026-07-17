@@ -78,3 +78,60 @@ class YouTubeVideoMetrics:
     comments: int
     watch_minutes: int | None = None
     average_view_duration: float | None = None
+
+
+@dataclass(frozen=True)
+class TikTokAccountMetrics:
+    open_id: str
+    display_name: str
+    username: str
+    followers: int
+    following: int
+    likes: int
+    video_count: int
+    captured_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TikTokVideoMetrics:
+    video_id: str
+    title: str
+    description: str
+    published_at: datetime
+    duration_seconds: int
+    views: int
+    likes: int
+    comments: int
+    shares: int
+
+
+@dataclass(frozen=True)
+class InstagramAccountMetrics:
+    account_id: str
+    username: str
+    followers: int
+    following: int
+    media_count: int
+    reach: int | None = None
+    profile_views: int | None = None
+    views: int | None = None
+    total_interactions: int | None = None
+    captured_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class InstagramMediaMetrics:
+    media_id: str
+    caption: str
+    media_type: str
+    product_type: str
+    published_at: datetime
+    likes: int
+    comments: int
+    views: int | None = None
+    reach: int | None = None
+    saved: int | None = None
+    shares: int | None = None
+    total_interactions: int | None = None
+    watch_time_ms: int | None = None
+    average_watch_time_ms: int | None = None

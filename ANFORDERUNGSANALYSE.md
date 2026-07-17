@@ -131,8 +131,10 @@ wenn eine Quelle vorübergehend nicht erreichbar ist.
 
 ### Phase 3 – TikTok und Instagram
 
-- TikTok-OAuth, Videoabruf und Zähler-Snapshots integrieren.
-- Instagram-OAuth sowie Konto- und Medien-Insights integrieren.
+- Erledigt: TikTok-Desktop-OAuth mit PKCE, Token-Erneuerung, paginierter Abruf
+  öffentlicher Videos und lokale Konto-/Video-Snapshots.
+- Erledigt: Instagram Business Login über lokalen HTTPS-Callback, langlebige
+  Tokens sowie paginierte Konto-, Medien- und medientypabhängige Insights.
 - Teilfehler, abgelaufene Tokens und erneute Autorisierung sauber behandeln.
 - Quellenvergleich und gemeinsame Kennzahlen ergänzen.
 

@@ -99,3 +99,46 @@ Das Dashboard verwendet eine iOS-inspirierte Glasoptik mit abgerundeten Karten, 
 - alle öffentlichen Uploads mit Aufrufen, Likes, Kommentaranzahl, Watchtime und Wiedergabedauer
 - automatische Pagination und lokale Speicherung des letzten erfolgreichen Stands
 - keine Einnahmen, Werbeumsätze oder Kommentartexte im aktuellen MVP
+
+## TikTok einrichten
+
+Die TikTok-Developer-App benötigt im Sandbox-Modus Login Kit für **Desktop**, die
+Redirect-URI `http://127.0.0.1:3456/callback/` sowie die Scopes
+`user.info.profile`, `user.info.stats` und `video.list`. Das verwendete TikTok-Konto
+muss als Target User eingetragen sein. Client Key und Client Secret ausschließlich
+lokal in `.local.env` eintragen:
+
+```text
+TIKTOK_CLIENT_KEY=...
+TIKTOK_CLIENT_SECRET=...
+```
+
+Beim ersten Start öffnet sich die TikTok-Anmeldung im Browser. Das Zugriffstoken
+wird unter `.secrets/tiktok_token.json` gespeichert und automatisch erneuert.
+Angezeigt werden Follower, Following, Gesamtlikes, öffentliche Videoanzahl sowie
+Aufrufe, Likes, Kommentaranzahl und Shares für jedes öffentliche Video. Watchtime
+und Kommentartexte stellt die Display API nicht bereit.
+
+## Instagram einrichten
+
+Die Meta-App verwendet **Instagram API with Instagram Login** mit den
+Berechtigungen `instagram_business_basic` und
+`instagram_business_manage_insights`. Als Business-Login-Weiterleitung ist
+`https://localhost:3457/callback/` hinterlegt. Instagram App ID und App Secret
+ausschließlich lokal in `.local.env` eintragen:
+
+```text
+INSTAGRAM_APP_ID=...
+INSTAGRAM_APP_SECRET=...
+```
+
+Beim ersten Login erzeugt das Tool ein selbstsigniertes localhost-Zertifikat in
+`.secrets/`. Der Browser zeigt deshalb möglicherweise einmalig eine
+Zertifikatswarnung; über **Erweitert → Weiter zu localhost** kann der lokale
+Callback geöffnet werden. Das gespeicherte langlebige Token wird automatisch
+rechtzeitig erneuert.
+
+Angezeigt werden Profil-, Follower- und Medienzahlen, Konto-Insights der letzten
+30 Tage sowie Likes, Kommentare, Aufrufe, Reichweite, Speicherungen, Shares und
+– soweit Meta sie für den Medientyp liefert – Reel-Watchtime je Medium. Nicht
+verfügbare Insights werden als `–` dargestellt.

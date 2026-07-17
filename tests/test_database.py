@@ -7,6 +7,8 @@ from lucky_analyzer.database import Database
 from lucky_analyzer.models import (
     CustomerReview, DailyMetrics, StorefrontRating,
     YouTubeChannelMetrics, YouTubeVideoMetrics,
+    TikTokAccountMetrics, TikTokVideoMetrics,
+    InstagramAccountMetrics, InstagramMediaMetrics,
 )
 
 
@@ -101,4 +103,40 @@ class DatabaseTests(TestCase):
 
             self.assertEqual(
                 [item.video_id for item in database.youtube_videos()], ["public"]
+            )
+
+    def test_tiktok_sync_replaces_the_public_video_list(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            account = TikTokAccountMetrics("user", "Lucky", "lucky", 5, 1, 20, 1)
+
+            def video(video_id: str) -> TikTokVideoMetrics:
+                return TikTokVideoMetrics(
+                    video_id, video_id, "", datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    12, 100, 10, 2, 1,
+                )
+
+            database.save_tiktok_metrics(account, [video("old")])
+            database.save_tiktok_metrics(account, [video("current")])
+
+            self.assertEqual(database.latest_tiktok_account().followers, 5)
+            self.assertEqual([item.video_id for item in database.tiktok_videos()], ["current"])
+
+    def test_instagram_sync_replaces_media_and_keeps_latest_account(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            account = InstagramAccountMetrics("ig", "lucky", 12, 3, 1, reach=50)
+
+            def medium(media_id: str) -> InstagramMediaMetrics:
+                return InstagramMediaMetrics(
+                    media_id, media_id, "IMAGE", "FEED",
+                    datetime(2026, 7, 1, tzinfo=timezone.utc), 4, 1, views=20,
+                )
+
+            database.save_instagram_metrics(account, [medium("old")])
+            database.save_instagram_metrics(account, [medium("current")])
+
+            self.assertEqual(database.latest_instagram_account().reach, 50)
+            self.assertEqual(
+                [item.media_id for item in database.instagram_media()], ["current"]
             )

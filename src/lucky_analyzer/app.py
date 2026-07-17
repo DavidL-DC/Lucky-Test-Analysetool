@@ -7,8 +7,14 @@ from pathlib import Path
 import customtkinter as ctk
 
 from .database import Database
-from .models import CustomerReview, DashboardMetrics, YouTubeChannelMetrics, YouTubeVideoMetrics
+from .models import (
+    CustomerReview, DashboardMetrics, YouTubeChannelMetrics, YouTubeVideoMetrics,
+    TikTokAccountMetrics, TikTokVideoMetrics,
+    InstagramAccountMetrics, InstagramMediaMetrics,
+)
+from .instagram_service import InstagramService
 from .service import AnalyticsService
+from .tiktok_service import TikTokService
 from .youtube_service import YouTubeService
 
 
@@ -46,6 +52,8 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.database = Database(DATABASE_PATH)
         self.service = AnalyticsService(PROJECT_ROOT, self.database)
         self.youtube_service = YouTubeService(PROJECT_ROOT, self.database)
+        self.tiktok_service = TikTokService(PROJECT_ROOT, self.database)
+        self.instagram_service = InstagramService(PROJECT_ROOT, self.database)
         self.metric_values: dict[str, tk.StringVar] = {}
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
         self.reviews_by_id: dict[str, CustomerReview] = {}
@@ -55,6 +63,8 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.review_distribution = tk.StringVar(value="Noch keine Rezensionen")
         self.source_status = tk.StringVar(value="Wartet auf Aktualisierung")
         self.youtube_status = tk.StringVar(value="YouTube · nicht verbunden")
+        self.tiktok_status = tk.StringVar(value="TikTok · nicht verbunden")
+        self.instagram_status = tk.StringVar(value="Instagram · nicht verbunden")
         self.dark_mode = tk.BooleanVar(value=True)
         self.last_status_message = "Bereit"
 
@@ -64,13 +74,17 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._build_content()
         self._show_metrics(self.database.dashboard_metrics())
         self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
+        self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
+        self._show_instagram(
+            self.database.latest_instagram_account(), self.database.instagram_media()
+        )
         self.after(300, self.refresh_data)
 
     def _build_sidebar(self) -> None:
         sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=SIDEBAR)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(9, weight=1)
+        sidebar.grid_rowconfigure(13, weight=1)
 
         logo = ctk.CTkFrame(sidebar, fg_color="transparent")
         logo.grid(row=0, column=0, padx=22, pady=(28, 36), sticky="ew")
@@ -120,16 +134,25 @@ class LuckyAnalyzerApp(ctk.CTk):
             sidebar, 4, "youtube", "▶", "YouTube",
             lambda: self._navigate("youtube", "youtube_section"),
         )
+        self._nav_item(
+            sidebar, 5, "tiktok", "♪", "TikTok",
+            lambda: self._navigate("tiktok", "tiktok_section"),
+        )
+        self._nav_item(
+            sidebar, 6, "instagram", "◎", "Instagram",
+            lambda: self._navigate("instagram", "instagram_section"),
+        )
 
         ctk.CTkLabel(
             sidebar,
             text="QUELLEN",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 12, "bold"),
-        ).grid(row=5, column=0, padx=24, pady=(28, 8), sticky="w")
-        self._source_item(sidebar, 6, "Apple App Store", SUCCESS)
-        self._source_item(sidebar, 7, "YouTube", SUCCESS)
-        self._source_item(sidebar, 8, "TikTok & Instagram", INACTIVE, "Demnächst")
+        ).grid(row=7, column=0, padx=24, pady=(16, 6), sticky="w")
+        self._source_item(sidebar, 8, "Apple App Store", SUCCESS)
+        self._source_item(sidebar, 9, "YouTube", SUCCESS)
+        self._source_item(sidebar, 10, "TikTok", SUCCESS)
+        self._source_item(sidebar, 11, "Instagram", SUCCESS)
 
         ctk.CTkSwitch(
             sidebar,
@@ -143,7 +166,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             button_hover_color="#E3E8EF",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 15, "bold"),
-        ).grid(row=9, column=0, padx=24, pady=(12, 4), sticky="sw")
+        ).grid(row=13, column=0, padx=24, pady=(6, 4), sticky="sw")
 
         source_card = ctk.CTkFrame(
             sidebar,
@@ -152,7 +175,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             border_width=1,
             border_color=GLASS_BORDER,
         )
-        source_card.grid(row=10, column=0, padx=18, pady=(16, 12), sticky="sew")
+        source_card.grid(row=14, column=0, padx=18, pady=(8, 8), sticky="sew")
         ctk.CTkLabel(
             source_card,
             text="DATENQUELLEN",
@@ -170,13 +193,21 @@ class LuckyAnalyzerApp(ctk.CTk):
         ctk.CTkLabel(
             source_card, textvariable=self.youtube_status, text_color=MUTED,
             justify="left", wraplength=155, font=ctk.CTkFont(FONT, 12),
-        ).pack(anchor="w", padx=14, pady=(0, 14))
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+        ctk.CTkLabel(
+            source_card, textvariable=self.tiktok_status, text_color=MUTED,
+            justify="left", wraplength=155, font=ctk.CTkFont(FONT, 12),
+        ).pack(anchor="w", padx=14, pady=(0, 8))
+        ctk.CTkLabel(
+            source_card, textvariable=self.instagram_status, text_color=MUTED,
+            justify="left", wraplength=155, font=ctk.CTkFont(FONT, 12),
+        ).pack(anchor="w", padx=14, pady=(0, 12))
         ctk.CTkLabel(
             sidebar,
             text="Lokal · Privat · Version 0.1",
             text_color=SUBTLE,
             font=ctk.CTkFont(FONT, 11),
-        ).grid(row=11, column=0, padx=22, pady=(0, 20), sticky="w")
+        ).grid(row=15, column=0, padx=22, pady=(0, 12), sticky="w")
 
     def _nav_item(
         self,
@@ -272,7 +303,9 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._build_rating_overview(row=3)
         self._build_review_browser(row=4)
         self._build_youtube_section(row=5)
-        self._build_status_panel(row=6)
+        self._build_tiktok_section(row=6)
+        self._build_instagram_section(row=7)
+        self._build_status_panel(row=8)
 
     def _build_youtube_section(self, row: int) -> None:
         panel = self._glass_panel(self.content)
@@ -310,6 +343,80 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.youtube_video_text.pack(fill="x", padx=20, pady=(0, 20))
         self.youtube_video_text.configure(state="disabled")
         self.youtube_video_text._textbox.bind("<MouseWheel>", self._scroll_youtube_videos)
+
+    def _build_tiktok_section(self, row: int) -> None:
+        panel = self._glass_panel(self.content)
+        self.tiktok_section = panel
+        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        ctk.CTkLabel(panel, text="TikTok Analytics", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
+        self.tiktok_account_title = tk.StringVar(value="Noch nicht verbunden")
+        ctk.CTkLabel(panel, textvariable=self.tiktok_account_title, text_color=MUTED,
+                     font=ctk.CTkFont(FONT, 13)).pack(anchor="w", padx=22, pady=(0, 12))
+        cards = ctk.CTkFrame(panel, fg_color="transparent")
+        cards.pack(fill="x", padx=15)
+        for column in range(4):
+            cards.grid_columnconfigure(column, weight=1, uniform="tiktok")
+        definitions = [
+            ("tt_followers", "Follower"), ("tt_following", "Folgt"),
+            ("tt_likes", "Gesamtlikes"), ("tt_videos", "Öffentliche Videos"),
+            ("tt_views", "Videoaufrufe"), ("tt_video_likes", "Video-Likes"),
+            ("tt_comments", "Kommentare"), ("tt_shares", "Shares"),
+        ]
+        for index, (key, label) in enumerate(definitions):
+            card = ctk.CTkFrame(cards, corner_radius=16, fg_color=INNER_SURFACE)
+            card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
+            self.metric_values[key] = tk.StringVar(value="–")
+            ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
+                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+            ctk.CTkLabel(card, text=label, text_color=MUTED,
+                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+        ctk.CTkLabel(panel, text="Alle öffentlichen Videos", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
+        self.tiktok_video_text = ctk.CTkTextbox(
+            panel, height=250, corner_radius=14, fg_color=INNER_SURFACE,
+            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+        )
+        self.tiktok_video_text.pack(fill="x", padx=20, pady=(0, 20))
+        self.tiktok_video_text.configure(state="disabled")
+        self.tiktok_video_text._textbox.bind("<MouseWheel>", self._scroll_tiktok_videos)
+
+    def _build_instagram_section(self, row: int) -> None:
+        panel = self._glass_panel(self.content)
+        self.instagram_section = panel
+        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        ctk.CTkLabel(panel, text="Instagram Insights", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
+        self.instagram_account_title = tk.StringVar(value="Noch nicht verbunden")
+        ctk.CTkLabel(panel, textvariable=self.instagram_account_title, text_color=MUTED,
+                     font=ctk.CTkFont(FONT, 13)).pack(anchor="w", padx=22, pady=(0, 12))
+        cards = ctk.CTkFrame(panel, fg_color="transparent")
+        cards.pack(fill="x", padx=15)
+        for column in range(4):
+            cards.grid_columnconfigure(column, weight=1, uniform="instagram")
+        definitions = [
+            ("ig_followers", "Follower"), ("ig_following", "Folgt"),
+            ("ig_media", "Medien"), ("ig_reach", "Reichweite · 30 Tage"),
+            ("ig_views", "Aufrufe · 30 Tage"), ("ig_profile_views", "Profilaufrufe · 30 Tage"),
+            ("ig_interactions", "Interaktionen · 30 Tage"), ("ig_updated", "Datenstand"),
+        ]
+        for index, (key, label) in enumerate(definitions):
+            card = ctk.CTkFrame(cards, corner_radius=16, fg_color=INNER_SURFACE)
+            card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
+            self.metric_values[key] = tk.StringVar(value="–")
+            ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
+                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+            ctk.CTkLabel(card, text=label, text_color=MUTED,
+                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+        ctk.CTkLabel(panel, text="Alle Medien", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
+        self.instagram_media_text = ctk.CTkTextbox(
+            panel, height=270, corner_radius=14, fg_color=INNER_SURFACE,
+            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+        )
+        self.instagram_media_text.pack(fill="x", padx=20, pady=(0, 20))
+        self.instagram_media_text.configure(state="disabled")
+        self.instagram_media_text._textbox.bind("<MouseWheel>", self._scroll_instagram_media)
 
     def _build_metric_cards(self, row: int) -> None:
         section = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -598,6 +705,18 @@ class LuckyAnalyzerApp(ctk.CTk):
         )
         return "break"
 
+    def _scroll_tiktok_videos(self, event) -> str:
+        self.tiktok_video_text._textbox.yview_scroll(
+            self._wheel_units(event, speed=4), "units"
+        )
+        return "break"
+
+    def _scroll_instagram_media(self, event) -> str:
+        self.instagram_media_text._textbox.yview_scroll(
+            self._wheel_units(event, speed=4), "units"
+        )
+        return "break"
+
     @staticmethod
     def _wheel_units(event, speed: int) -> int:
         delta = getattr(event, "delta", 0)
@@ -609,6 +728,9 @@ class LuckyAnalyzerApp(ctk.CTk):
     def refresh_data(self) -> None:
         self.refresh_button.configure(state="disabled", text="Aktualisiere …")
         self.source_status.set("Daten werden synchronisiert …")
+        self.youtube_status.set("YouTube · synchronisiert …")
+        self.tiktok_status.set("TikTok · synchronisiert …")
+        self.instagram_status.set("Instagram · synchronisiert …")
         self._set_status("App-Store-Daten werden aktualisiert …")
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
@@ -625,9 +747,27 @@ class LuckyAnalyzerApp(ctk.CTk):
             channel, videos = self.youtube_service.refresh()
         except Exception as exc:
             errors.append(f"YouTube: {exc}")
-        self.after(0, self._refresh_completed, metrics, channel, videos, errors)
+        tiktok_account = None
+        tiktok_videos: list[TikTokVideoMetrics] = []
+        try:
+            tiktok_account, tiktok_videos = self.tiktok_service.refresh()
+        except Exception as exc:
+            errors.append(f"TikTok: {exc}")
+        instagram_account = None
+        instagram_media: list[InstagramMediaMetrics] = []
+        try:
+            instagram_account, instagram_media = self.instagram_service.refresh()
+        except Exception as exc:
+            errors.append(f"Instagram: {exc}")
+        self.after(
+            0, self._refresh_completed, metrics, channel, videos,
+            tiktok_account, tiktok_videos, instagram_account, instagram_media, errors,
+        )
 
-    def _refresh_completed(self, metrics, channel, videos, errors) -> None:
+    def _refresh_completed(
+        self, metrics, channel, videos, tiktok_account, tiktok_videos,
+        instagram_account, instagram_media, errors
+    ) -> None:
         self._show_metrics(metrics)
         if channel:
             self._show_youtube(channel, videos)
@@ -635,6 +775,20 @@ class LuckyAnalyzerApp(ctk.CTk):
         else:
             self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
             self.youtube_status.set("YouTube · Hinweis")
+        if tiktok_account:
+            self._show_tiktok(tiktok_account, tiktok_videos)
+            self.tiktok_status.set("TikTok · aktuell")
+        else:
+            self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
+            self.tiktok_status.set("TikTok · Hinweis")
+        if instagram_account:
+            self._show_instagram(instagram_account, instagram_media)
+            self.instagram_status.set("Instagram · aktuell")
+        else:
+            self._show_instagram(
+                self.database.latest_instagram_account(), self.database.instagram_media()
+            )
+            self.instagram_status.set("Instagram · Hinweis")
         if errors:
             self._refresh_failed("\n\n".join(errors))
         else:
@@ -643,7 +797,7 @@ class LuckyAnalyzerApp(ctk.CTk):
     def _refresh_succeeded(self, metrics: DashboardMetrics) -> None:
         self._show_metrics(metrics)
         self.source_status.set("Alle Apple-Daten aktuell")
-        self._set_status("App-Store-Daten erfolgreich aktualisiert")
+        self._set_status("Alle Datenquellen erfolgreich aktualisiert")
         self.refresh_button.configure(state="normal", text="↻  Jetzt aktualisieren")
 
     def _refresh_failed(self, message: str) -> None:
@@ -763,6 +917,90 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.youtube_video_text.delete("1.0", "end")
         self.youtube_video_text.insert("1.0", "\n".join(lines) or "Noch keine Videos vorhanden.")
         self.youtube_video_text.configure(state="disabled")
+
+    def _show_tiktok(
+        self, account: TikTokAccountMetrics | None, videos: list[TikTokVideoMetrics]
+    ) -> None:
+        if not account:
+            return
+        account_name = f"@{account.username}" if account.username else account.display_name
+        self.tiktok_account_title.set(account_name or "TikTok-Konto")
+        totals = {
+            "tt_views": sum(video.views for video in videos),
+            "tt_video_likes": sum(video.likes for video in videos),
+            "tt_comments": sum(video.comments for video in videos),
+            "tt_shares": sum(video.shares for video in videos),
+        }
+        values = {
+            "tt_followers": account.followers, "tt_following": account.following,
+            "tt_likes": account.likes, "tt_videos": account.video_count, **totals,
+        }
+        for key, value in values.items():
+            self.metric_values[key].set(self._format_number(value))
+        lines = []
+        for video in videos:
+            title = video.title.strip() or video.description.strip() or "Ohne Titel"
+            lines.append(
+                f"{video.published_at.astimezone():%d.%m.%Y}  ·  {title}\n"
+                f"   {self._format_number(video.views)} Aufrufe  ·  "
+                f"{self._format_number(video.likes)} Likes  ·  "
+                f"{self._format_number(video.comments)} Kommentare  ·  "
+                f"{self._format_number(video.shares)} Shares  ·  "
+                f"{self._format_duration(video.duration_seconds)}\n"
+            )
+        self.tiktok_video_text.configure(state="normal")
+        self.tiktok_video_text.delete("1.0", "end")
+        self.tiktok_video_text.insert("1.0", "\n".join(lines) or "Noch keine öffentlichen Videos vorhanden.")
+        self.tiktok_video_text.configure(state="disabled")
+
+    def _show_instagram(
+        self, account: InstagramAccountMetrics | None, media: list[InstagramMediaMetrics]
+    ) -> None:
+        if not account:
+            return
+        self.instagram_account_title.set(f"@{account.username}" if account.username else "Instagram-Konto")
+
+        def number(value: int | None) -> str:
+            return "–" if value is None else self._format_number(value)
+
+        values = {
+            "ig_followers": number(account.followers), "ig_following": number(account.following),
+            "ig_media": number(account.media_count), "ig_reach": number(account.reach),
+            "ig_views": number(account.views), "ig_profile_views": number(account.profile_views),
+            "ig_interactions": number(account.total_interactions),
+            "ig_updated": account.captured_at.astimezone().strftime("%d.%m. %H:%M") if account.captured_at else "–",
+        }
+        for key, value in values.items():
+            self.metric_values[key].set(value)
+        lines = []
+        for item in media:
+            title = item.caption.strip().replace("\n", " ") or "Ohne Beschreibung"
+            watch = (
+                "–" if item.watch_time_ms is None
+                else self._format_watch_milliseconds(item.watch_time_ms)
+            )
+            average = (
+                "–" if item.average_watch_time_ms is None
+                else self._format_watch_milliseconds(item.average_watch_time_ms)
+            )
+            lines.append(
+                f"{item.published_at.astimezone():%d.%m.%Y}  ·  {item.product_type or item.media_type}  ·  {title[:90]}\n"
+                f"   {number(item.views)} Aufrufe  ·  {self._format_number(item.likes)} Likes  ·  "
+                f"{self._format_number(item.comments)} Kommentare  ·  {number(item.reach)} Reichweite  ·  "
+                f"{number(item.saved)} gespeichert  ·  {number(item.shares)} Shares\n"
+                f"   Watchtime {watch}  ·  Ø {average}\n"
+            )
+        self.instagram_media_text.configure(state="normal")
+        self.instagram_media_text.delete("1.0", "end")
+        self.instagram_media_text.insert("1.0", "\n".join(lines) or "Noch keine Medien vorhanden.")
+        self.instagram_media_text.configure(state="disabled")
+
+    @staticmethod
+    def _format_watch_milliseconds(milliseconds: int) -> str:
+        seconds = milliseconds / 1000
+        if seconds >= 3600:
+            return f"{seconds / 3600:,.1f} Std.".replace(",", "X").replace(".", ",").replace("X", ".")
+        return f"{seconds:,.1f} Sek.".replace(",", "X").replace(".", ",").replace("X", ".")
 
     @staticmethod
     def _format_duration(seconds: float) -> str:

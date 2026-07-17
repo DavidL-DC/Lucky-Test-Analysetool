@@ -23,6 +23,25 @@ class YouTubeConfig:
     token_path: Path
 
 
+@dataclass(frozen=True)
+class TikTokConfig:
+    client_key: str
+    client_secret: str
+    redirect_uri: str
+    token_path: Path
+
+
+@dataclass(frozen=True)
+class InstagramConfig:
+    app_id: str
+    app_secret: str
+    redirect_uri: str
+    token_path: Path
+    certificate_path: Path
+    private_key_path: Path
+    api_version: str
+
+
 def load_local_values(path: Path) -> dict[str, str]:
     if not path.exists():
         raise ConfigurationError(
@@ -85,4 +104,51 @@ def load_youtube_config(project_root: Path) -> YouTubeConfig:
     if not client_path.is_file():
         raise ConfigurationError(f"YouTube-OAuth-Datei fehlt: {client_path.resolve()}")
     return YouTubeConfig(client_path.resolve(), token_path.resolve())
+
+
+def load_tiktok_config(project_root: Path) -> TikTokConfig:
+    values = load_local_values(project_root / ".local.env")
+    required = ("TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET")
+    missing = [name for name in required if not values.get(name)]
+    if missing:
+        raise ConfigurationError("Fehlende TikTok-Werte: " + ", ".join(missing))
+    token_path = Path(values.get("TIKTOK_TOKEN_PATH", ".secrets/tiktok_token.json"))
+    if not token_path.is_absolute():
+        token_path = project_root / token_path
+    return TikTokConfig(
+        client_key=values["TIKTOK_CLIENT_KEY"],
+        client_secret=values["TIKTOK_CLIENT_SECRET"],
+        redirect_uri=values.get(
+            "TIKTOK_REDIRECT_URI", "http://127.0.0.1:3456/callback/"
+        ),
+        token_path=token_path.resolve(),
+    )
+
+
+def load_instagram_config(project_root: Path) -> InstagramConfig:
+    values = load_local_values(project_root / ".local.env")
+    required = ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET")
+    missing = [name for name in required if not values.get(name)]
+    if missing:
+        raise ConfigurationError("Fehlende Instagram-Werte: " + ", ".join(missing))
+
+    def local_path(name: str, default: str) -> Path:
+        path = Path(values.get(name, default))
+        return (project_root / path).resolve() if not path.is_absolute() else path.resolve()
+
+    return InstagramConfig(
+        app_id=values["INSTAGRAM_APP_ID"],
+        app_secret=values["INSTAGRAM_APP_SECRET"],
+        redirect_uri=values.get(
+            "INSTAGRAM_REDIRECT_URI", "https://localhost:3457/callback/"
+        ),
+        token_path=local_path("INSTAGRAM_TOKEN_PATH", ".secrets/instagram_token.json"),
+        certificate_path=local_path(
+            "INSTAGRAM_CERTIFICATE_PATH", ".secrets/instagram_localhost_cert.pem"
+        ),
+        private_key_path=local_path(
+            "INSTAGRAM_PRIVATE_KEY_PATH", ".secrets/instagram_localhost_key.pem"
+        ),
+        api_version=values.get("INSTAGRAM_API_VERSION", "v25.0"),
+    )
 

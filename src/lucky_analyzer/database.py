@@ -9,6 +9,8 @@ from typing import Iterable, Iterator
 from .models import (
     CustomerReview, DailyMetrics, DashboardMetrics, StorefrontRating,
     YouTubeChannelMetrics, YouTubeVideoMetrics,
+    TikTokAccountMetrics, TikTokVideoMetrics,
+    InstagramAccountMetrics, InstagramMediaMetrics,
 )
 
 
@@ -67,6 +69,33 @@ CREATE TABLE IF NOT EXISTS youtube_videos (
     duration_seconds INTEGER NOT NULL, views INTEGER NOT NULL, likes INTEGER NOT NULL,
     comments INTEGER NOT NULL, watch_minutes INTEGER, average_view_duration REAL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tiktok_account_snapshots (
+    captured_at TEXT PRIMARY KEY, open_id TEXT NOT NULL, display_name TEXT NOT NULL,
+    username TEXT NOT NULL, followers INTEGER NOT NULL, following INTEGER NOT NULL,
+    likes INTEGER NOT NULL, video_count INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tiktok_videos (
+    video_id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL,
+    published_at TEXT NOT NULL, duration_seconds INTEGER NOT NULL,
+    views INTEGER NOT NULL, likes INTEGER NOT NULL, comments INTEGER NOT NULL,
+    shares INTEGER NOT NULL, updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS instagram_account_snapshots (
+    captured_at TEXT PRIMARY KEY, account_id TEXT NOT NULL, username TEXT NOT NULL,
+    followers INTEGER NOT NULL, following INTEGER NOT NULL, media_count INTEGER NOT NULL,
+    reach INTEGER, profile_views INTEGER, views INTEGER, total_interactions INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS instagram_media (
+    media_id TEXT PRIMARY KEY, caption TEXT NOT NULL, media_type TEXT NOT NULL,
+    product_type TEXT NOT NULL, published_at TEXT NOT NULL, likes INTEGER NOT NULL,
+    comments INTEGER NOT NULL, views INTEGER, reach INTEGER, saved INTEGER,
+    shares INTEGER, total_interactions INTEGER, watch_time_ms INTEGER,
+    average_watch_time_ms INTEGER, updated_at TEXT NOT NULL
 );
 """
 
@@ -356,4 +385,109 @@ class Database:
             duration_seconds=r["duration_seconds"], views=r["views"], likes=r["likes"],
             comments=r["comments"], watch_minutes=r["watch_minutes"],
             average_view_duration=r["average_view_duration"],
+        ) for r in rows]
+
+    def save_tiktok_metrics(
+        self, account: TikTokAccountMetrics, videos: Iterable[TikTokVideoMetrics]
+    ) -> None:
+        captured_at = (account.captured_at or datetime.now(timezone.utc)).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [
+            (v.video_id, v.title, v.description, v.published_at.isoformat(),
+             v.duration_seconds, v.views, v.likes, v.comments, v.shares, now)
+            for v in videos
+        ]
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT INTO tiktok_account_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (captured_at, account.open_id, account.display_name, account.username,
+                 account.followers, account.following, account.likes, account.video_count),
+            )
+            connection.execute("DELETE FROM tiktok_videos")
+            connection.executemany(
+                """INSERT INTO tiktok_videos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(video_id) DO UPDATE SET title=excluded.title,
+                   description=excluded.description, published_at=excluded.published_at,
+                   duration_seconds=excluded.duration_seconds, views=excluded.views,
+                   likes=excluded.likes, comments=excluded.comments, shares=excluded.shares,
+                   updated_at=excluded.updated_at""",
+                rows,
+            )
+
+    def latest_tiktok_account(self) -> TikTokAccountMetrics | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM tiktok_account_snapshots ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
+        if not row:
+            return None
+        return TikTokAccountMetrics(
+            open_id=row["open_id"], display_name=row["display_name"], username=row["username"],
+            followers=row["followers"], following=row["following"], likes=row["likes"],
+            video_count=row["video_count"], captured_at=datetime.fromisoformat(row["captured_at"]),
+        )
+
+    def tiktok_videos(self) -> list[TikTokVideoMetrics]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tiktok_videos ORDER BY published_at DESC"
+            ).fetchall()
+        return [TikTokVideoMetrics(
+            video_id=r["video_id"], title=r["title"], description=r["description"],
+            published_at=datetime.fromisoformat(r["published_at"]),
+            duration_seconds=r["duration_seconds"], views=r["views"], likes=r["likes"],
+            comments=r["comments"], shares=r["shares"],
+        ) for r in rows]
+
+    def save_instagram_metrics(
+        self, account: InstagramAccountMetrics, media: Iterable[InstagramMediaMetrics]
+    ) -> None:
+        captured_at = (account.captured_at or datetime.now(timezone.utc)).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [(
+            item.media_id, item.caption, item.media_type, item.product_type,
+            item.published_at.isoformat(), item.likes, item.comments, item.views,
+            item.reach, item.saved, item.shares, item.total_interactions,
+            item.watch_time_ms, item.average_watch_time_ms, now,
+        ) for item in media]
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT INTO instagram_account_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (captured_at, account.account_id, account.username, account.followers,
+                 account.following, account.media_count, account.reach,
+                 account.profile_views, account.views, account.total_interactions),
+            )
+            connection.execute("DELETE FROM instagram_media")
+            connection.executemany(
+                "INSERT INTO instagram_media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                rows,
+            )
+
+    def latest_instagram_account(self) -> InstagramAccountMetrics | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM instagram_account_snapshots ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
+        if not row:
+            return None
+        return InstagramAccountMetrics(
+            account_id=row["account_id"], username=row["username"],
+            followers=row["followers"], following=row["following"],
+            media_count=row["media_count"], reach=row["reach"],
+            profile_views=row["profile_views"], views=row["views"],
+            total_interactions=row["total_interactions"],
+            captured_at=datetime.fromisoformat(row["captured_at"]),
+        )
+
+    def instagram_media(self) -> list[InstagramMediaMetrics]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM instagram_media ORDER BY published_at DESC"
+            ).fetchall()
+        return [InstagramMediaMetrics(
+            media_id=r["media_id"], caption=r["caption"], media_type=r["media_type"],
+            product_type=r["product_type"], published_at=datetime.fromisoformat(r["published_at"]),
+            likes=r["likes"], comments=r["comments"], views=r["views"], reach=r["reach"],
+            saved=r["saved"], shares=r["shares"], total_interactions=r["total_interactions"],
+            watch_time_ms=r["watch_time_ms"], average_watch_time_ms=r["average_watch_time_ms"],
         ) for r in rows]
