@@ -1,4 +1,7 @@
 .venv/
+.local.env
+.secrets/*
+!.secrets/.gitkeep
 __pycache__/
 *.py[cod]
 *.db
@@ -12,4 +15,3 @@ __pycache__/
 dist/
 build/
 *.egg-info/
-

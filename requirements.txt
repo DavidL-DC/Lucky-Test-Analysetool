@@ -1,2 +1,1 @@
-# Für die Planungsphase und den MVP werden keine externen Pakete benötigt.
-
+cryptography>=42,<47
