@@ -120,9 +120,14 @@ Vorgesehene Eindeutigkeitsschlüssel:
 
 ### Phase 2 – YouTube
 
-- OAuth-Verbindung und Token-Erneuerung umsetzen.
-- Kanal-, Video- und Analytics-Kennzahlen abrufen.
-- Dashboard um Zeitverlauf und Top-Videos erweitern.
+- Erledigt: OAuth-Verbindung und automatische Token-Erneuerung.
+- Erledigt: Kanal- und Analytics-Kennzahlen sowie alle öffentlichen Uploads einschließlich Pagination.
+- Erledigt: lokale Snapshots und Anzeige aller Videos im Dashboard.
+- Später: Zeitverlauf, Sortierung und gesonderte Top-Videos-Ansicht.
+
+**MVP-Ergebnis:** Beim Programmstart werden App Store und YouTube unabhängig
+voneinander aktualisiert. Kanal- und Einzelvideo-Werte bleiben lokal verfügbar,
+wenn eine Quelle vorübergehend nicht erreichbar ist.
 
 ### Phase 3 – TikTok und Instagram
 

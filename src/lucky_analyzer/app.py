@@ -7,8 +7,9 @@ from pathlib import Path
 import customtkinter as ctk
 
 from .database import Database
-from .models import CustomerReview, DashboardMetrics
+from .models import CustomerReview, DashboardMetrics, YouTubeChannelMetrics, YouTubeVideoMetrics
 from .service import AnalyticsService
+from .youtube_service import YouTubeService
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +45,7 @@ class LuckyAnalyzerApp(ctk.CTk):
 
         self.database = Database(DATABASE_PATH)
         self.service = AnalyticsService(PROJECT_ROOT, self.database)
+        self.youtube_service = YouTubeService(PROJECT_ROOT, self.database)
         self.metric_values: dict[str, tk.StringVar] = {}
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
         self.reviews_by_id: dict[str, CustomerReview] = {}
@@ -52,6 +54,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.data_status = tk.StringVar(value="Noch keine Daten vorhanden")
         self.review_distribution = tk.StringVar(value="Noch keine Rezensionen")
         self.source_status = tk.StringVar(value="Wartet auf Aktualisierung")
+        self.youtube_status = tk.StringVar(value="YouTube · nicht verbunden")
         self.dark_mode = tk.BooleanVar(value=True)
         self.last_status_message = "Bereit"
 
@@ -60,13 +63,14 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._build_sidebar()
         self._build_content()
         self._show_metrics(self.database.dashboard_metrics())
+        self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
         self.after(300, self.refresh_data)
 
     def _build_sidebar(self) -> None:
         sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=SIDEBAR)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(8, weight=1)
+        sidebar.grid_rowconfigure(9, weight=1)
 
         logo = ctk.CTkFrame(sidebar, fg_color="transparent")
         logo.grid(row=0, column=0, padx=22, pady=(28, 36), sticky="ew")
@@ -112,16 +116,20 @@ class LuckyAnalyzerApp(ctk.CTk):
             "Bewertungen",
             lambda: self._navigate("ratings", "rating_section"),
         )
+        self._nav_item(
+            sidebar, 4, "youtube", "▶", "YouTube",
+            lambda: self._navigate("youtube", "youtube_section"),
+        )
 
         ctk.CTkLabel(
             sidebar,
             text="QUELLEN",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 12, "bold"),
-        ).grid(row=4, column=0, padx=24, pady=(28, 8), sticky="w")
-        self._source_item(sidebar, 5, "Apple App Store", SUCCESS)
-        self._source_item(sidebar, 6, "YouTube", INACTIVE, "Demnächst")
-        self._source_item(sidebar, 7, "TikTok & Instagram", INACTIVE, "Demnächst")
+        ).grid(row=5, column=0, padx=24, pady=(28, 8), sticky="w")
+        self._source_item(sidebar, 6, "Apple App Store", SUCCESS)
+        self._source_item(sidebar, 7, "YouTube", SUCCESS)
+        self._source_item(sidebar, 8, "TikTok & Instagram", INACTIVE, "Demnächst")
 
         ctk.CTkSwitch(
             sidebar,
@@ -135,7 +143,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             button_hover_color="#E3E8EF",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 15, "bold"),
-        ).grid(row=8, column=0, padx=24, pady=(12, 4), sticky="sw")
+        ).grid(row=9, column=0, padx=24, pady=(12, 4), sticky="sw")
 
         source_card = ctk.CTkFrame(
             sidebar,
@@ -144,10 +152,10 @@ class LuckyAnalyzerApp(ctk.CTk):
             border_width=1,
             border_color=GLASS_BORDER,
         )
-        source_card.grid(row=9, column=0, padx=18, pady=(16, 12), sticky="sew")
+        source_card.grid(row=10, column=0, padx=18, pady=(16, 12), sticky="sew")
         ctk.CTkLabel(
             source_card,
-            text="APPLE STATUS",
+            text="DATENQUELLEN",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 11, "bold"),
         ).pack(anchor="w", padx=14, pady=(14, 5))
@@ -160,11 +168,15 @@ class LuckyAnalyzerApp(ctk.CTk):
             font=ctk.CTkFont(FONT, 13),
         ).pack(anchor="w", padx=14, pady=(0, 14))
         ctk.CTkLabel(
+            source_card, textvariable=self.youtube_status, text_color=MUTED,
+            justify="left", wraplength=155, font=ctk.CTkFont(FONT, 12),
+        ).pack(anchor="w", padx=14, pady=(0, 14))
+        ctk.CTkLabel(
             sidebar,
             text="Lokal · Privat · Version 0.1",
             text_color=SUBTLE,
             font=ctk.CTkFont(FONT, 11),
-        ).grid(row=10, column=0, padx=22, pady=(0, 20), sticky="w")
+        ).grid(row=11, column=0, padx=22, pady=(0, 20), sticky="w")
 
     def _nav_item(
         self,
@@ -259,7 +271,45 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._build_metric_cards(row=2)
         self._build_rating_overview(row=3)
         self._build_review_browser(row=4)
-        self._build_status_panel(row=5)
+        self._build_youtube_section(row=5)
+        self._build_status_panel(row=6)
+
+    def _build_youtube_section(self, row: int) -> None:
+        panel = self._glass_panel(self.content)
+        self.youtube_section = panel
+        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        ctk.CTkLabel(panel, text="YouTube Analytics", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
+        self.youtube_channel_title = tk.StringVar(value="Noch nicht verbunden")
+        ctk.CTkLabel(panel, textvariable=self.youtube_channel_title, text_color=MUTED,
+                     font=ctk.CTkFont(FONT, 13)).pack(anchor="w", padx=22, pady=(0, 12))
+        cards = ctk.CTkFrame(panel, fg_color="transparent")
+        cards.pack(fill="x", padx=15)
+        for column in range(4):
+            cards.grid_columnconfigure(column, weight=1, uniform="youtube")
+        definitions = [
+            ("yt_subscribers", "Abonnenten"), ("yt_views", "Kanalaufrufe"),
+            ("yt_watch", "Watchtime"), ("yt_videos", "Videos"),
+            ("yt_likes", "Likes"), ("yt_comments", "Kommentare"),
+            ("yt_avg_duration", "Ø Wiedergabedauer"), ("yt_updated", "Datenstand"),
+        ]
+        for index, (key, label) in enumerate(definitions):
+            card = ctk.CTkFrame(cards, corner_radius=16, fg_color=INNER_SURFACE)
+            card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
+            self.metric_values[key] = tk.StringVar(value="–")
+            ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
+                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+            ctk.CTkLabel(card, text=label, text_color=MUTED,
+                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+        ctk.CTkLabel(panel, text="Alle Videos", text_color=TEXT,
+                     font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
+        self.youtube_video_text = ctk.CTkTextbox(
+            panel, height=250, corner_radius=14, fg_color=INNER_SURFACE,
+            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+        )
+        self.youtube_video_text.pack(fill="x", padx=20, pady=(0, 20))
+        self.youtube_video_text.configure(state="disabled")
+        self.youtube_video_text._textbox.bind("<MouseWheel>", self._scroll_youtube_videos)
 
     def _build_metric_cards(self, row: int) -> None:
         section = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -542,6 +592,12 @@ class LuckyAnalyzerApp(ctk.CTk):
         )
         return "break"
 
+    def _scroll_youtube_videos(self, event) -> str:
+        self.youtube_video_text._textbox.yview_scroll(
+            self._wheel_units(event, speed=4), "units"
+        )
+        return "break"
+
     @staticmethod
     def _wheel_units(event, speed: int) -> int:
         delta = getattr(event, "delta", 0)
@@ -557,12 +613,32 @@ class LuckyAnalyzerApp(ctk.CTk):
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
     def _refresh_worker(self) -> None:
+        errors: list[str] = []
+        metrics = self.database.dashboard_metrics()
         try:
             metrics = self.service.refresh()
         except Exception as exc:
-            self.after(0, self._refresh_failed, str(exc))
-            return
-        self.after(0, self._refresh_succeeded, metrics)
+            errors.append(f"Apple: {exc}")
+        channel = None
+        videos: list[YouTubeVideoMetrics] = []
+        try:
+            channel, videos = self.youtube_service.refresh()
+        except Exception as exc:
+            errors.append(f"YouTube: {exc}")
+        self.after(0, self._refresh_completed, metrics, channel, videos, errors)
+
+    def _refresh_completed(self, metrics, channel, videos, errors) -> None:
+        self._show_metrics(metrics)
+        if channel:
+            self._show_youtube(channel, videos)
+            self.youtube_status.set("YouTube · aktuell")
+        else:
+            self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
+            self.youtube_status.set("YouTube · Hinweis")
+        if errors:
+            self._refresh_failed("\n\n".join(errors))
+        else:
+            self._refresh_succeeded(metrics)
 
     def _refresh_succeeded(self, metrics: DashboardMetrics) -> None:
         self._show_metrics(metrics)
@@ -655,6 +731,48 @@ class LuckyAnalyzerApp(ctk.CTk):
             self._display_review(reviews[0])
         else:
             self._set_review_text("Noch keine schriftlichen Rezensionen vorhanden.")
+
+    def _show_youtube(
+        self, channel: YouTubeChannelMetrics | None, videos: list[YouTubeVideoMetrics]
+    ) -> None:
+        if not channel:
+            return
+        self.youtube_channel_title.set(channel.title)
+        values = {
+            "yt_subscribers": self._format_number(channel.subscribers),
+            "yt_views": self._format_number(channel.views),
+            "yt_watch": "–" if channel.watch_minutes is None else self._format_watchtime(channel.watch_minutes),
+            "yt_videos": self._format_number(channel.video_count),
+            "yt_likes": self._format_number(channel.likes),
+            "yt_comments": self._format_number(channel.comments),
+            "yt_avg_duration": "–" if channel.average_view_duration is None else self._format_duration(channel.average_view_duration),
+            "yt_updated": channel.captured_at.astimezone().strftime("%d.%m. %H:%M") if channel.captured_at else "–",
+        }
+        for key, value in values.items():
+            self.metric_values[key].set(value)
+        lines = []
+        for video in videos:
+            watch = "–" if video.watch_minutes is None else self._format_watchtime(video.watch_minutes)
+            average = "–" if video.average_view_duration is None else self._format_duration(video.average_view_duration)
+            lines.append(
+                f"{video.published_at.astimezone():%d.%m.%Y}  ·  {video.title}\n"
+                f"   {self._format_number(video.views)} Aufrufe  ·  {self._format_number(video.likes)} Likes  ·  "
+                f"{self._format_number(video.comments)} Kommentare  ·  {watch} Watchtime  ·  Ø {average}\n"
+            )
+        self.youtube_video_text.configure(state="normal")
+        self.youtube_video_text.delete("1.0", "end")
+        self.youtube_video_text.insert("1.0", "\n".join(lines) or "Noch keine Videos vorhanden.")
+        self.youtube_video_text.configure(state="disabled")
+
+    @staticmethod
+    def _format_duration(seconds: float) -> str:
+        seconds = int(round(seconds))
+        return f"{seconds // 60}:{seconds % 60:02d} Min."
+
+    @staticmethod
+    def _format_watchtime(minutes: int) -> str:
+        hours = minutes / 60
+        return f"{hours:,.1f} Std.".replace(",", "X").replace(".", ",").replace("X", ".")
 
     def _review_button_text(self, review: CustomerReview) -> str:
         title = review.title.strip() or "Ohne Titel"

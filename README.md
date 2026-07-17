@@ -4,7 +4,7 @@ Lokales Analyse-Dashboard für die iOS-App **Lucky Test**. Es soll App-Store- un
 
 ## Projektstand
 
-Phase 1 ist als lokaler App-Store-Kern umgesetzt. Beim Start fordert das Tool die neuesten verfügbaren App-Store-Analytics-Berichte an, speichert Tageswerte in SQLite und zeigt den letzten gültigen Stand. Umfang, Datenstrategie und weitere MVP-Schritte stehen in der [Anforderungsanalyse](ANFORDERUNGSANALYSE.md).
+Der lokale App-Store-Kern und die erste YouTube-Integration sind umgesetzt. Beim Start ruft das Tool beide Quellen automatisch ab, speichert die Werte in SQLite und zeigt bei Fehlern weiterhin den letzten gültigen Stand.
 
 ## Geplanter MVP
 
@@ -54,6 +54,16 @@ Danach in `.local.env` Issuer ID, Key ID, Apple App ID und Bundle ID eintragen. 
 
 `.local.env` und der Inhalt von `.secrets/` sind von Git ausgeschlossen.
 
+### YouTube einrichten
+
+In der Google Cloud Console müssen **YouTube Data API v3** und **YouTube Analytics API** aktiviert sein. Den OAuth-Client als Anwendungstyp **Desktop-App** herunterladen und hier ablegen:
+
+```text
+.secrets/youtube_oauth_client.json
+```
+
+Beim ersten Start öffnet sich die Google-Anmeldung im Standardbrowser. Mit dem als Testnutzer eingetragenen Kanalkonto anmelden und den reinen Lesezugriff bestätigen. Das Tool speichert anschließend ausschließlich lokal ein Token unter `.secrets/youtube_token.json`. Im OAuth-Testmodus ist nach sieben Tagen üblicherweise eine erneute Anmeldung erforderlich.
+
 Anwendung starten:
 
 ```powershell
@@ -81,3 +91,11 @@ Tests ausführen:
 ## Oberfläche
 
 Das Dashboard verwendet eine iOS-inspirierte Glasoptik mit abgerundeten Karten, klarer Informationshierarchie und einer responsiven Scrollansicht. Über den Schalter in der Seitenleiste kann jederzeit zwischen einem anthrazitfarbenen Dark Mode und einem weiß-hellgrauen Light Mode gewechselt werden. Die lokal installierte Schrift Quicksand sorgt für eine runde, freundliche Typografie. Rezensionen lassen sich in einer kompakten Liste auswählen und vollständig lesen oder kopieren.
+
+## YouTube-Kennzahlen
+
+- Kanal: Abonnenten, Aufrufe, Videoanzahl, summierte Likes und Kommentare
+- Watchtime und durchschnittliche Wiedergabedauer aus der YouTube Analytics API
+- alle öffentlichen Uploads mit Aufrufen, Likes, Kommentaranzahl, Watchtime und Wiedergabedauer
+- automatische Pagination und lokale Speicherung des letzten erfolgreichen Stands
+- keine Einnahmen, Werbeumsätze oder Kommentartexte im aktuellen MVP

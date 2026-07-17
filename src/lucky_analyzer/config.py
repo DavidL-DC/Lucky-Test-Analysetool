@@ -17,6 +17,12 @@ class AppStoreConfig:
     bundle_id: str
 
 
+@dataclass(frozen=True)
+class YouTubeConfig:
+    oauth_client_path: Path
+    token_path: Path
+
+
 def load_local_values(path: Path) -> dict[str, str]:
     if not path.exists():
         raise ConfigurationError(
@@ -64,4 +70,19 @@ def load_app_store_config(project_root: Path) -> AppStoreConfig:
         app_id=values["APP_STORE_APP_ID"],
         bundle_id=values["APP_STORE_BUNDLE_ID"],
     )
+
+
+def load_youtube_config(project_root: Path) -> YouTubeConfig:
+    values = load_local_values(project_root / ".local.env")
+    client_path = Path(
+        values.get("YOUTUBE_OAUTH_CLIENT_PATH", ".secrets/youtube_oauth_client.json")
+    )
+    token_path = Path(values.get("YOUTUBE_TOKEN_PATH", ".secrets/youtube_token.json"))
+    if not client_path.is_absolute():
+        client_path = project_root / client_path
+    if not token_path.is_absolute():
+        token_path = project_root / token_path
+    if not client_path.is_file():
+        raise ConfigurationError(f"YouTube-OAuth-Datei fehlt: {client_path.resolve()}")
+    return YouTubeConfig(client_path.resolve(), token_path.resolve())
 

@@ -6,7 +6,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
-from .models import CustomerReview, DailyMetrics, DashboardMetrics, StorefrontRating
+from .models import (
+    CustomerReview, DailyMetrics, DashboardMetrics, StorefrontRating,
+    YouTubeChannelMetrics, YouTubeVideoMetrics,
+)
 
 
 SCHEMA = """
@@ -49,6 +52,20 @@ CREATE TABLE IF NOT EXISTS storefront_ratings (
     territory TEXT PRIMARY KEY,
     average_rating REAL NOT NULL,
     rating_count INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS youtube_channel_snapshots (
+    captured_at TEXT PRIMARY KEY, channel_id TEXT NOT NULL, title TEXT NOT NULL,
+    subscribers INTEGER NOT NULL, views INTEGER NOT NULL, video_count INTEGER NOT NULL,
+    likes INTEGER NOT NULL, comments INTEGER NOT NULL, watch_minutes INTEGER,
+    average_view_duration REAL
+);
+
+CREATE TABLE IF NOT EXISTS youtube_videos (
+    video_id TEXT PRIMARY KEY, title TEXT NOT NULL, published_at TEXT NOT NULL,
+    duration_seconds INTEGER NOT NULL, views INTEGER NOT NULL, likes INTEGER NOT NULL,
+    comments INTEGER NOT NULL, watch_minutes INTEGER, average_view_duration REAL,
     updated_at TEXT NOT NULL
 );
 """
@@ -282,3 +299,61 @@ class Database:
             )
             for row in rows
         ]
+
+    def save_youtube_metrics(
+        self, channel: YouTubeChannelMetrics, videos: Iterable[YouTubeVideoMetrics]
+    ) -> None:
+        captured_at = (channel.captured_at or datetime.now(timezone.utc)).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
+        video_rows = [
+            (v.video_id, v.title, v.published_at.isoformat(), v.duration_seconds,
+             v.views, v.likes, v.comments, v.watch_minutes,
+             v.average_view_duration, now)
+            for v in videos
+        ]
+        with self._connection() as connection:
+            connection.execute(
+                """INSERT INTO youtube_channel_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (captured_at, channel.channel_id, channel.title, channel.subscribers,
+                 channel.views, channel.video_count, channel.likes, channel.comments,
+                 channel.watch_minutes, channel.average_view_duration),
+            )
+            connection.execute("DELETE FROM youtube_videos")
+            connection.executemany(
+                """INSERT INTO youtube_videos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(video_id) DO UPDATE SET title=excluded.title,
+                   published_at=excluded.published_at, duration_seconds=excluded.duration_seconds,
+                   views=excluded.views, likes=excluded.likes, comments=excluded.comments,
+                   watch_minutes=excluded.watch_minutes,
+                   average_view_duration=excluded.average_view_duration,
+                   updated_at=excluded.updated_at""",
+                video_rows,
+            )
+
+    def latest_youtube_channel(self) -> YouTubeChannelMetrics | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM youtube_channel_snapshots ORDER BY captured_at DESC LIMIT 1"
+            ).fetchone()
+        if not row:
+            return None
+        return YouTubeChannelMetrics(
+            channel_id=row["channel_id"], title=row["title"], subscribers=row["subscribers"],
+            views=row["views"], video_count=row["video_count"], likes=row["likes"],
+            comments=row["comments"], watch_minutes=row["watch_minutes"],
+            average_view_duration=row["average_view_duration"],
+            captured_at=datetime.fromisoformat(row["captured_at"]),
+        )
+
+    def youtube_videos(self) -> list[YouTubeVideoMetrics]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM youtube_videos ORDER BY published_at DESC"
+            ).fetchall()
+        return [YouTubeVideoMetrics(
+            video_id=r["video_id"], title=r["title"],
+            published_at=datetime.fromisoformat(r["published_at"]),
+            duration_seconds=r["duration_seconds"], views=r["views"], likes=r["likes"],
+            comments=r["comments"], watch_minutes=r["watch_minutes"],
+            average_view_duration=r["average_view_duration"],
+        ) for r in rows]

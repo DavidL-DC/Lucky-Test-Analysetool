@@ -51,3 +51,30 @@ class DashboardMetrics:
     written_review_distribution: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)
     last_success_at: datetime | None = None
     data_through: date | None = None
+
+
+@dataclass(frozen=True)
+class YouTubeChannelMetrics:
+    channel_id: str
+    title: str
+    subscribers: int
+    views: int
+    video_count: int
+    likes: int
+    comments: int
+    watch_minutes: int | None = None
+    average_view_duration: float | None = None
+    captured_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class YouTubeVideoMetrics:
+    video_id: str
+    title: str
+    published_at: datetime
+    duration_seconds: int
+    views: int
+    likes: int
+    comments: int
+    watch_minutes: int | None = None
+    average_view_duration: float | None = None

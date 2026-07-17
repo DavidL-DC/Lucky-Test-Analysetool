@@ -4,7 +4,10 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 
 from lucky_analyzer.database import Database
-from lucky_analyzer.models import CustomerReview, DailyMetrics, StorefrontRating
+from lucky_analyzer.models import (
+    CustomerReview, DailyMetrics, StorefrontRating,
+    YouTubeChannelMetrics, YouTubeVideoMetrics,
+)
 
 
 class DatabaseTests(TestCase):
@@ -81,3 +84,21 @@ class DatabaseTests(TestCase):
             metrics = database.dashboard_metrics()
             self.assertEqual(metrics.dach_rating_count, 20)
             self.assertEqual(metrics.dach_average_rating, 4.25)
+
+    def test_youtube_sync_removes_videos_missing_from_latest_result(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            channel = YouTubeChannelMetrics("channel", "Lucky Test", 10, 100, 2, 8, 3)
+
+            def video(video_id: str) -> YouTubeVideoMetrics:
+                return YouTubeVideoMetrics(
+                    video_id, video_id, datetime(2026, 7, 1, tzinfo=timezone.utc),
+                    60, 10, 2, 1,
+                )
+
+            database.save_youtube_metrics(channel, [video("public"), video("private")])
+            database.save_youtube_metrics(channel, [video("public")])
+
+            self.assertEqual(
+                [item.video_id for item in database.youtube_videos()], ["public"]
+            )
