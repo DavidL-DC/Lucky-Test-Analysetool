@@ -51,7 +51,10 @@ Der Abruf startet automatisch beim Öffnen der Anwendung und kann zusätzlich ü
 
 ### Soll nach dem MVP
 
-- frei wählbare Zeiträume und Zeitvergleiche
+- erledigt: zentrale Auswahl für 7, 30, 90 Tage und Gesamt; App-Store-Ereignisse
+  und Rezensionen werden nach Datum gefiltert, kumulative Bewertungen und
+  Social-Media-Zähler über lokal gespeicherte Snapshots verglichen
+- Zeitvergleiche zum vorherigen Zeitraum
 - Filter nach Plattform und Beitrag
 - geplante Hintergrundaktualisierung in einem wählbaren Intervall
 - Paketierung als Windows-EXE

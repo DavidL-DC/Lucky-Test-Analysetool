@@ -92,6 +92,16 @@ Tests ausführen:
 
 Das Dashboard verwendet eine iOS-inspirierte Glasoptik mit abgerundeten Karten, klarer Informationshierarchie und einer responsiven Scrollansicht. Über den Schalter in der Seitenleiste kann jederzeit zwischen einem anthrazitfarbenen Dark Mode und einem weiß-hellgrauen Light Mode gewechselt werden. Die lokal installierte Schrift Quicksand sorgt für eine runde, freundliche Typografie. Rezensionen lassen sich in einer kompakten Liste auswählen und vollständig lesen oder kopieren.
 
+Die zentrale Zeitraumwahl bietet **7 Tage**, **30 Tage**, **90 Tage** und
+**Gesamt**. App-Store-Ereignisse und datierte schriftliche Rezensionen werden
+direkt gefiltert. Für kumulative Bewertungen, Follower, Aufrufe, Likes,
+Kommentare und weitere Social-Media-Zähler speichert jeder Abruf einen lokalen
+Snapshot. Sobald ein ausreichend alter Vergleichspunkt vorhanden ist, zeigt das
+Dashboard den im Zeitraum gemessenen Zuwachs mit `+` an. Bis dahin bleibt der
+aktuelle Wert sichtbar und wird mit `gesamt` gekennzeichnet. Frühere Zeiträume
+vor dem ersten lokalen Snapshot können die Plattform-APIs nicht rückwirkend
+rekonstruieren.
+
 ## YouTube-Kennzahlen
 
 - Kanal: Abonnenten, Aufrufe, Videoanzahl, summierte Likes und Kommentare

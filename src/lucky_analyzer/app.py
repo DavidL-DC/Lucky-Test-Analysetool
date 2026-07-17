@@ -11,6 +11,7 @@ from .models import (
     CustomerReview, DashboardMetrics, YouTubeChannelMetrics, YouTubeVideoMetrics,
     TikTokAccountMetrics, TikTokVideoMetrics,
     InstagramAccountMetrics, InstagramMediaMetrics,
+    AnalysisPeriod,
 )
 from .instagram_service import InstagramService
 from .service import AnalyticsService
@@ -65,6 +66,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.youtube_status = tk.StringVar(value="YouTube · nicht verbunden")
         self.tiktok_status = tk.StringVar(value="TikTok · nicht verbunden")
         self.instagram_status = tk.StringVar(value="Instagram · nicht verbunden")
+        self.selected_period = AnalysisPeriod.THIRTY_DAYS
         self.dark_mode = tk.BooleanVar(value=True)
         self.last_status_message = "Bereit"
 
@@ -72,7 +74,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self._build_sidebar()
         self._build_content()
-        self._show_metrics(self.database.dashboard_metrics())
+        self._show_metrics(self._period_dashboard_metrics())
         self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
         self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
         self._show_instagram(
@@ -292,20 +294,43 @@ class LuckyAnalyzerApp(ctk.CTk):
         )
         self.refresh_button.pack(side="right", pady=5)
 
+        period_bar = ctk.CTkFrame(self.content, fg_color="transparent")
+        period_bar.grid(row=1, column=0, padx=34, pady=(8, 12), sticky="ew")
+        ctk.CTkLabel(
+            period_bar, text="ZEITRAUM", text_color=MUTED,
+            font=ctk.CTkFont(FONT, 12, "bold"),
+        ).pack(side="left", padx=(2, 14))
+        self.period_selector = ctk.CTkSegmentedButton(
+            period_bar,
+            values=[period.label for period in AnalysisPeriod],
+            command=self._change_period,
+            height=38,
+            corner_radius=13,
+            selected_color=ACCENT_STRONG,
+            selected_hover_color="#6498FF",
+            unselected_color=GLASS,
+            unselected_hover_color=GLASS_HOVER,
+            border_width=1,
+            text_color=TEXT,
+            font=ctk.CTkFont(FONT, 13, "bold"),
+        )
+        self.period_selector.pack(side="left")
+        self.period_selector.set(self.selected_period.label)
+
         ctk.CTkLabel(
             self.content,
             textvariable=self.data_status,
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 13),
-        ).grid(row=1, column=0, padx=36, pady=(0, 20), sticky="w")
+        ).grid(row=2, column=0, padx=36, pady=(0, 20), sticky="w")
 
-        self._build_metric_cards(row=2)
-        self._build_rating_overview(row=3)
-        self._build_review_browser(row=4)
-        self._build_youtube_section(row=5)
-        self._build_tiktok_section(row=6)
-        self._build_instagram_section(row=7)
-        self._build_status_panel(row=8)
+        self._build_metric_cards(row=3)
+        self._build_rating_overview(row=4)
+        self._build_review_browser(row=5)
+        self._build_youtube_section(row=6)
+        self._build_tiktok_section(row=7)
+        self._build_instagram_section(row=8)
+        self._build_status_panel(row=9)
 
     def _build_youtube_section(self, row: int) -> None:
         panel = self._glass_panel(self.content)
@@ -734,6 +759,18 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._set_status("App-Store-Daten werden aktualisiert …")
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
+    def _period_dashboard_metrics(self) -> DashboardMetrics:
+        return self.database.dashboard_metrics(period_days=self.selected_period.days)
+
+    def _change_period(self, label: str) -> None:
+        self.selected_period = AnalysisPeriod.from_label(label)
+        self._show_metrics(self._period_dashboard_metrics())
+        self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
+        self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
+        self._show_instagram(
+            self.database.latest_instagram_account(), self.database.instagram_media()
+        )
+
     def _refresh_worker(self) -> None:
         errors: list[str] = []
         metrics = self.database.dashboard_metrics()
@@ -768,6 +805,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self, metrics, channel, videos, tiktok_account, tiktok_videos,
         instagram_account, instagram_media, errors
     ) -> None:
+        metrics = self._period_dashboard_metrics()
         self._show_metrics(metrics)
         if channel:
             self._show_youtube(channel, videos)
@@ -801,7 +839,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.refresh_button.configure(state="normal", text="↻  Jetzt aktualisieren")
 
     def _refresh_failed(self, message: str) -> None:
-        self._show_metrics(self.database.dashboard_metrics())
+        self._show_metrics(self._period_dashboard_metrics())
         self.source_status.set("Teilweise aktuell · Details unten")
         self._set_status(f"Aktualisierung mit Hinweis:\n{message}")
         self.refresh_button.configure(state="normal", text="↻  Erneut versuchen")
@@ -830,9 +868,13 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.metric_values["dach_average_rating"].set(
             "–" if metrics.dach_average_rating is None else f"{metrics.dach_average_rating:.2f} ★"
         )
-        self.metric_values["dach_rating_count"].set(
-            f"{self._format_number(metrics.dach_rating_count)} Bewertungen"
-        )
+        if self.selected_period.days is None:
+            rating_count_text = f"{self._format_number(metrics.dach_rating_count)} Bewertungen"
+        elif metrics.dach_rating_history_available:
+            rating_count_text = f"+{self._format_number(metrics.dach_rating_count)} neue Bewertungen"
+        else:
+            rating_count_text = f"{self._format_number(metrics.dach_rating_count)} Bewertungen gesamt"
+        self.metric_values["dach_rating_count"].set(rating_count_text)
         self.metric_values["written_review_average"].set(
             "–" if metrics.written_review_average is None else f"{metrics.written_review_average:.2f} ★"
         )
@@ -851,13 +893,19 @@ class LuckyAnalyzerApp(ctk.CTk):
             local_time = metrics.last_success_at.astimezone()
             data_date = metrics.data_through.strftime("%d.%m.%Y") if metrics.data_through else "–"
             self.data_status.set(
-                f"Zuletzt synchronisiert {local_time.strftime('%d.%m.%Y um %H:%M')} Uhr  ·  Datenstand {data_date}"
+                f"Zeitraum {self.selected_period.label}  ·  Zuletzt synchronisiert "
+                f"{local_time.strftime('%d.%m.%Y um %H:%M')} Uhr  ·  Datenstand {data_date}"
             )
         else:
-            self.data_status.set("Apple-Verbindung aktiv · Analytics-Berichte werden vorbereitet")
+            self.data_status.set(
+                f"Zeitraum {self.selected_period.label}  ·  "
+                "Apple-Verbindung aktiv · Analytics-Berichte werden vorbereitet"
+            )
 
     def _show_reviews(self) -> None:
-        reviews = self.database.latest_customer_reviews()
+        reviews = self.database.latest_customer_reviews(
+            period_days=self.selected_period.days
+        )
         self.reviews_by_id = {review.review_id: review for review in reviews}
         self.review_buttons.clear()
         for widget in self.review_list.winfo_children():
@@ -892,26 +940,39 @@ class LuckyAnalyzerApp(ctk.CTk):
         if not channel:
             return
         self.youtube_channel_title.set(channel.title)
+        growth = self.database.social_period_growth(
+            "youtube", self.selected_period.days
+        )
         values = {
-            "yt_subscribers": self._format_number(channel.subscribers),
-            "yt_views": self._format_number(channel.views),
-            "yt_watch": "–" if channel.watch_minutes is None else self._format_watchtime(channel.watch_minutes),
-            "yt_videos": self._format_number(channel.video_count),
-            "yt_likes": self._format_number(channel.likes),
-            "yt_comments": self._format_number(channel.comments),
+            "yt_subscribers": self._period_counter(growth, "subscribers", channel.subscribers),
+            "yt_views": self._period_counter(growth, "views", channel.views),
+            "yt_watch": self._period_watchtime(growth, "watch_minutes", channel.watch_minutes),
+            "yt_videos": self._period_counter(growth, "video_count", channel.video_count),
+            "yt_likes": self._period_counter(growth, "items_likes", channel.likes),
+            "yt_comments": self._period_counter(growth, "items_comments", channel.comments),
             "yt_avg_duration": "–" if channel.average_view_duration is None else self._format_duration(channel.average_view_duration),
             "yt_updated": channel.captured_at.astimezone().strftime("%d.%m. %H:%M") if channel.captured_at else "–",
         }
         for key, value in values.items():
             self.metric_values[key].set(value)
+        item_growth = self.database.social_item_period_growth(
+            "youtube", self.selected_period.days
+        )
         lines = []
         for video in videos:
-            watch = "–" if video.watch_minutes is None else self._format_watchtime(video.watch_minutes)
+            delta = item_growth.get(video.video_id) if item_growth else None
+            views = self._item_counter(delta, "views", video.views)
+            likes = self._item_counter(delta, "likes", video.likes)
+            comments = self._item_counter(delta, "comments", video.comments)
+            watch_value = delta.get("watch_minutes") if delta else video.watch_minutes
+            watch = "–" if watch_value is None else self._format_watchtime(watch_value)
+            if delta and watch_value is not None:
+                watch = f"+{watch}"
             average = "–" if video.average_view_duration is None else self._format_duration(video.average_view_duration)
             lines.append(
                 f"{video.published_at.astimezone():%d.%m.%Y}  ·  {video.title}\n"
-                f"   {self._format_number(video.views)} Aufrufe  ·  {self._format_number(video.likes)} Likes  ·  "
-                f"{self._format_number(video.comments)} Kommentare  ·  {watch} Watchtime  ·  Ø {average}\n"
+                f"   {views} Aufrufe  ·  {likes} Likes  ·  "
+                f"{comments} Kommentare  ·  {watch} Watchtime  ·  Ø {average}\n"
             )
         self.youtube_video_text.configure(state="normal")
         self.youtube_video_text.delete("1.0", "end")
@@ -931,21 +992,34 @@ class LuckyAnalyzerApp(ctk.CTk):
             "tt_comments": sum(video.comments for video in videos),
             "tt_shares": sum(video.shares for video in videos),
         }
+        growth = self.database.social_period_growth("tiktok", self.selected_period.days)
         values = {
-            "tt_followers": account.followers, "tt_following": account.following,
-            "tt_likes": account.likes, "tt_videos": account.video_count, **totals,
+            "tt_followers": self._period_counter(growth, "followers", account.followers),
+            "tt_following": self._period_counter(growth, "following", account.following),
+            "tt_likes": self._period_counter(growth, "likes", account.likes),
+            "tt_videos": self._period_counter(growth, "video_count", account.video_count),
+            "tt_views": self._period_counter(growth, "items_views", totals["tt_views"]),
+            "tt_video_likes": self._period_counter(growth, "items_likes", totals["tt_video_likes"]),
+            "tt_comments": self._period_counter(growth, "items_comments", totals["tt_comments"]),
+            "tt_shares": self._period_counter(growth, "items_shares", totals["tt_shares"]),
         }
         for key, value in values.items():
-            self.metric_values[key].set(self._format_number(value))
+            self.metric_values[key].set(
+                value if isinstance(value, str) else self._format_number(value)
+            )
+        item_growth = self.database.social_item_period_growth(
+            "tiktok", self.selected_period.days
+        )
         lines = []
         for video in videos:
             title = video.title.strip() or video.description.strip() or "Ohne Titel"
+            delta = item_growth.get(video.video_id) if item_growth else None
             lines.append(
                 f"{video.published_at.astimezone():%d.%m.%Y}  ·  {title}\n"
-                f"   {self._format_number(video.views)} Aufrufe  ·  "
-                f"{self._format_number(video.likes)} Likes  ·  "
-                f"{self._format_number(video.comments)} Kommentare  ·  "
-                f"{self._format_number(video.shares)} Shares  ·  "
+                f"   {self._item_counter(delta, 'views', video.views)} Aufrufe  ·  "
+                f"{self._item_counter(delta, 'likes', video.likes)} Likes  ·  "
+                f"{self._item_counter(delta, 'comments', video.comments)} Kommentare  ·  "
+                f"{self._item_counter(delta, 'shares', video.shares)} Shares  ·  "
                 f"{self._format_duration(video.duration_seconds)}\n"
             )
         self.tiktok_video_text.configure(state="normal")
@@ -963,15 +1037,24 @@ class LuckyAnalyzerApp(ctk.CTk):
         def number(value: int | None) -> str:
             return "–" if value is None else self._format_number(value)
 
+        growth = self.database.social_period_growth("instagram", self.selected_period.days)
         values = {
-            "ig_followers": number(account.followers), "ig_following": number(account.following),
-            "ig_media": number(account.media_count), "ig_reach": number(account.reach),
-            "ig_views": number(account.views), "ig_profile_views": number(account.profile_views),
-            "ig_interactions": number(account.total_interactions),
+            "ig_followers": self._period_counter(growth, "followers", account.followers),
+            "ig_following": self._period_counter(growth, "following", account.following),
+            "ig_media": self._period_counter(growth, "media_count", account.media_count),
+            "ig_reach": self._period_counter(growth, "items_reach", account.reach),
+            "ig_views": self._period_counter(growth, "items_views", account.views),
+            "ig_profile_views": number(account.profile_views),
+            "ig_interactions": self._period_counter(
+                growth, "items_total_interactions", account.total_interactions
+            ),
             "ig_updated": account.captured_at.astimezone().strftime("%d.%m. %H:%M") if account.captured_at else "–",
         }
         for key, value in values.items():
             self.metric_values[key].set(value)
+        item_growth = self.database.social_item_period_growth(
+            "instagram", self.selected_period.days
+        )
         lines = []
         for item in media:
             title = item.caption.strip().replace("\n", " ") or "Ohne Beschreibung"
@@ -983,17 +1066,53 @@ class LuckyAnalyzerApp(ctk.CTk):
                 "–" if item.average_watch_time_ms is None
                 else self._format_watch_milliseconds(item.average_watch_time_ms)
             )
+            delta = item_growth.get(item.media_id) if item_growth else None
             lines.append(
                 f"{item.published_at.astimezone():%d.%m.%Y}  ·  {item.product_type or item.media_type}  ·  {title[:90]}\n"
-                f"   {number(item.views)} Aufrufe  ·  {self._format_number(item.likes)} Likes  ·  "
-                f"{self._format_number(item.comments)} Kommentare  ·  {number(item.reach)} Reichweite  ·  "
-                f"{number(item.saved)} gespeichert  ·  {number(item.shares)} Shares\n"
+                f"   {self._item_counter(delta, 'views', item.views)} Aufrufe  ·  "
+                f"{self._item_counter(delta, 'likes', item.likes)} Likes  ·  "
+                f"{self._item_counter(delta, 'comments', item.comments)} Kommentare  ·  "
+                f"{self._item_counter(delta, 'reach', item.reach)} Reichweite  ·  "
+                f"{self._item_counter(delta, 'saved', item.saved)} gespeichert  ·  "
+                f"{self._item_counter(delta, 'shares', item.shares)} Shares\n"
                 f"   Watchtime {watch}  ·  Ø {average}\n"
             )
         self.instagram_media_text.configure(state="normal")
         self.instagram_media_text.delete("1.0", "end")
         self.instagram_media_text.insert("1.0", "\n".join(lines) or "Noch keine Medien vorhanden.")
         self.instagram_media_text.configure(state="disabled")
+
+    def _period_counter(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if current is None:
+            return "–"
+        if growth is None:
+            return self._format_number(current)
+        if not growth.get("history_available"):
+            return f"{self._format_number(current)} gesamt"
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_number(value)}"
+
+    def _item_counter(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if growth is None:
+            return "–" if current is None else self._format_number(current)
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_number(value)}"
+
+    def _period_watchtime(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if current is None:
+            return "–"
+        if growth is None:
+            return self._format_watchtime(current)
+        if not growth.get("history_available"):
+            return f"{self._format_watchtime(current)} gesamt"
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_watchtime(value)}"
 
     @staticmethod
     def _format_watch_milliseconds(milliseconds: int) -> str:
