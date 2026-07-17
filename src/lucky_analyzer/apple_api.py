@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from .config import AppStoreConfig
+from .models import CustomerReview
 
 
 API_BASE_URL = "https://api.appstoreconnect.apple.com"
@@ -115,10 +116,41 @@ class AppStoreClient:
             )
         return selected
 
+    def fetch_customer_reviews(self) -> list[CustomerReview]:
+        items = self._get_all(
+            f"/v1/apps/{self.config.app_id}/customerReviews",
+            {"limit": "200", "sort": "-createdDate"},
+        )
+        reviews: list[CustomerReview] = []
+        for item in items:
+            attributes = item.get("attributes", {})
+            try:
+                rating = int(attributes["rating"])
+                created_at = _parse_apple_datetime(str(attributes["createdDate"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise AppStoreApiError(
+                    "Eine Apple-Rezension enthält ungültige Pflichtfelder."
+                ) from exc
+            if rating not in range(1, 6):
+                raise AppStoreApiError(
+                    f"Apple lieferte eine ungültige Sternebewertung: {rating}"
+                )
+            reviews.append(
+                CustomerReview(
+                    review_id=str(item["id"]),
+                    rating=rating,
+                    title=str(attributes.get("title") or ""),
+                    body=str(attributes.get("body") or ""),
+                    reviewer_nickname=str(attributes.get("reviewerNickname") or ""),
+                    created_at=created_at,
+                    territory=str(attributes.get("territory") or ""),
+                )
+            )
+        return reviews
+
     def _find_or_create_report_request(self) -> str:
         requests = self._get_all(
-            "/v1/analyticsReportRequests",
-            {"filter[app]": self.config.app_id},
+            f"/v1/apps/{self.config.app_id}/analyticsReportRequests"
         )
         for item in requests:
             if item.get("attributes", {}).get("accessType") == "ONGOING":
@@ -222,3 +254,9 @@ class AppStoreClient:
             return gzip.decompress(content)
         except gzip.BadGzipFile:
             return content
+
+
+def _parse_apple_datetime(value: str):
+    from datetime import datetime
+
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))

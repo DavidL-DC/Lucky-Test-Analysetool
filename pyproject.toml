@@ -7,8 +7,10 @@ name = "lucky-test-analysetool"
 version = "0.1.0"
 description = "Lokales Dashboard für Lucky-Test-Kennzahlen"
 requires-python = ">=3.11"
-dependencies = ["cryptography>=42,<47"]
+dependencies = [
+    "cryptography>=42,<47",
+    "customtkinter>=5.2,<6",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

@@ -44,6 +44,32 @@ class JwtTests(TestCase):
 
 
 class ReportSelectionTests(TestCase):
+    def test_report_requests_are_read_through_the_app_relationship(self) -> None:
+        requested_paths: list[str] = []
+
+        class TestClient(AppStoreClient):
+            def _get_all(self, path, query=None):
+                requested_paths.append(path)
+                return [
+                    {
+                        "id": "request-id",
+                        "attributes": {"accessType": "ONGOING"},
+                    }
+                ]
+
+        config = AppStoreConfig(
+            issuer_id="issuer",
+            key_id="key",
+            private_key_path=Path("unused"),
+            app_id="123",
+            bundle_id="de.example.app",
+        )
+        request_id = TestClient(config)._find_or_create_report_request()
+        self.assertEqual(request_id, "request-id")
+        self.assertEqual(
+            requested_paths, ["/v1/apps/123/analyticsReportRequests"]
+        )
+
     def test_standard_report_is_preferred_over_detailed_report(self) -> None:
         class TestClient(AppStoreClient):
             def _find_or_create_report_request(self) -> str:
@@ -75,3 +101,39 @@ class ReportSelectionTests(TestCase):
         names = {report.report_name for report in reports}
         self.assertIn("App Store Downloads Standard", names)
         self.assertNotIn("App Store Downloads Detailed", names)
+
+
+class CustomerReviewTests(TestCase):
+    def test_customer_reviews_are_mapped_from_apple_response(self) -> None:
+        class TestClient(AppStoreClient):
+            def _get_all(self, path, query=None):
+                self.requested_path = path
+                self.requested_query = query
+                return [
+                    {
+                        "id": "review-1",
+                        "attributes": {
+                            "rating": 5,
+                            "title": "Sehr gut",
+                            "body": "Macht Spaß.",
+                            "reviewerNickname": "Tester",
+                            "createdDate": "2026-07-16T10:30:00Z",
+                            "territory": "DEU",
+                        },
+                    }
+                ]
+
+        config = AppStoreConfig(
+            issuer_id="issuer",
+            key_id="key",
+            private_key_path=Path("unused"),
+            app_id="123",
+            bundle_id="de.example.app",
+        )
+        client = TestClient(config)
+        reviews = client.fetch_customer_reviews()
+        self.assertEqual(client.requested_path, "/v1/apps/123/customerReviews")
+        self.assertEqual(client.requested_query["sort"], "-createdDate")
+        self.assertEqual(reviews[0].review_id, "review-1")
+        self.assertEqual(reviews[0].rating, 5)
+        self.assertEqual(reviews[0].territory, "DEU")

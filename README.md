@@ -19,7 +19,7 @@ Phase 1 ist als lokaler App-Store-Kern umgesetzt. Beim Start fordert das Tool di
 ## Technische Basis
 
 - Python 3.11 oder neuer
-- Tkinter, SQLite und HTTP-Zugriffe auf offizielle APIs
+- CustomTkinter auf Tkinter-Basis, SQLite und HTTP-Zugriffe auf offizielle APIs
 - Zugangsdaten ausschließlich lokal und außerhalb von Git
 
 ## Voraussetzungen für automatische Abrufe
@@ -73,4 +73,11 @@ Tests ausführen:
 - Erstdownloads, erneute Downloads, Gesamtdownloads und Updates
 - Installationen und Deinstallationen mit sichtbarem Datenschutzhinweis
 - letzter erfolgreicher Abruf und Datenstand
-- Bewertung und Bewertungsanzahl sind im Datenmodell vorbereitet, bleiben aber leer, bis ein belastbarer offizieller Datenweg bestätigt ist
+- automatische Speicherung schriftlicher App-Store-Rezensionen
+- Anzahl und Sterndurchschnitt der schriftlichen Rezensionen; bewusst getrennt von Apples offizieller Gesamtbewertung
+- 1–5-Sterne-Verteilung der schriftlichen Rezensionen sowie auswählbare vollständige Rezensionstexte
+- gemeinsame DACH-Gesamtbewertung für Deutschland, Österreich und die Schweiz über Apples öffentlichen Lookup; länderweise Bewertungszahlen werden addiert und der Durchschnitt entsprechend gewichtet
+
+## Oberfläche
+
+Das Dashboard verwendet eine iOS-inspirierte Glasoptik mit abgerundeten Karten, klarer Informationshierarchie und einer responsiven Scrollansicht. Über den Schalter in der Seitenleiste kann jederzeit zwischen einem anthrazitfarbenen Dark Mode und einem weiß-hellgrauen Light Mode gewechselt werden. Die lokal installierte Schrift Quicksand sorgt für eine runde, freundliche Typografie. Rezensionen lassen sich in einer kompakten Liste auswählen und vollständig lesen oder kopieren.

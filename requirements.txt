@@ -1,1 +1,2 @@
 cryptography>=42,<47
+customtkinter>=5.2,<6
