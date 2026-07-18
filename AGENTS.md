@@ -2,7 +2,8 @@
 
 ## Ziel
 
-Den kleinsten lokal lauffähigen MVP für ein übersichtliches Lucky-Test-Analyse-Dashboard entwickeln.
+Den abgeschlossenen lokalen MVP für das Lucky-Test-Analyse-Dashboard stabil
+halten und spätere Erweiterungen klein, sicher und nachvollziehbar umsetzen.
 
 ## Technische Leitplanken
 
@@ -32,4 +33,3 @@ src/
     models.py
 tests/
 ```
-

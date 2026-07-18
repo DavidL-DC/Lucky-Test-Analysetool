@@ -1,4 +1,4 @@
-# Anforderungsanalyse und MVP-Plan
+# Anforderungsanalyse, MVP-Stand und Roadmap
 
 ## 1. Zielbild
 
@@ -15,9 +15,10 @@ Primärer Nutzer ist der Betreiber von Lucky Test. Das Dashboard soll beantworte
 
 ## 3. Rahmenbedingungen und Abgrenzung
 
-- Betrieb lokal unter Windows in VS Code, später optional als Desktop-Paket.
+- Betrieb lokal unter Windows, wahlweise aus VS Code oder als erzeugter One-folder-Build.
 - Möglichst keine laufenden Kosten.
-- Für Social Media stehen nur normale Privataccounts zur Verfügung.
+- YouTube und TikTok werden über die jeweils eingerichteten Konten angebunden;
+  Instagram ist für offizielle Insights als Business-Konto konfiguriert.
 - Ausschließlich offizielle APIs und OAuth-Verfahren; kein Scraping und keine inoffizielle Login-Automation.
 - Konten, API-Apps, Berechtigungen und Tokens müssen einmalig eingerichtet werden.
 - Instagram muss für Insights als Creator- oder Business-Konto geführt werden; ein normales Privatkonto reicht nicht.
@@ -36,28 +37,29 @@ Der Abruf startet automatisch beim Öffnen der Anwendung und kann zusätzlich ü
 
 „Aktuell“ bedeutet der neueste von der Plattform bereitgestellte Stand. Einige Plattformberichte werden verzögert verarbeitet; das Dashboard zeigt deshalb je Quelle `aktualisiert am`, `Datenstand` und den Zustand `aktuell`, `verzögert` oder `Fehler`.
 
-## 5. Funktionale Anforderungen
+## 5. Funktionaler MVP-Stand
 
-### Muss im MVP
+### Umgesetzt
 
-1. Einrichtungsassistent für App-IDs, Kanal-IDs und OAuth-Verbindungen.
-2. Tokens und Schlüssel lokal geschützt beziehungsweise über Umgebungsvariablen einlesen und niemals in Git speichern.
-3. Beim Start alle konfigurierten Quellen parallel aktualisieren, ohne die Oberfläche zu blockieren.
+1. Lokale Konfiguration von App-IDs und OAuth-Verbindungen über `.local.env`.
+2. Tokens und Schlüssel ausschließlich lokal einlesen und niemals in Git speichern.
+3. Beim Start alle konfigurierten Quellen in einem Hintergrundthread aktualisieren, ohne die Oberfläche zu blockieren.
 4. API-Antworten prüfen, normalisieren und als zeitgestempelte Snapshots in SQLite speichern.
-5. Fortschritt, letzten erfolgreichen Abruf und Fehler pro Quelle anzeigen.
-6. Bei einem Abruffehler die letzten gültigen Werte deutlich als veraltet anzeigen.
-7. Dashboard mit aktuellem Stand, Zeitverlauf, Top-Beiträgen und Interaktionsrate anzeigen.
-8. Manuelle Aktualisierung und CSV-Export der gespeicherten Daten anbieten.
+5. Letzten erfolgreichen Abruf, Datenstand und Fehler pro Quelle anzeigen.
+6. Bei einem Abruffehler die letzten gültigen Werte weiterverwenden.
+7. Dashboard mit Start-, App-Store-, YouTube-, TikTok- und Instagram-Seite sowie zentraler Zeitraumwahl anzeigen.
+8. Manuelle Aktualisierung, vollständige Beitragslisten und schriftliche App-Store-Rezensionen bereitstellen.
+9. Reproduzierbaren lokalen Windows-One-folder-Build erzeugen.
 
-### Soll nach dem MVP
+### Nach dem MVP
 
-- erledigt: zentrale Auswahl für 7, 30, 90 Tage und Gesamt; App-Store-Ereignisse
-  und Rezensionen werden nach Datum gefiltert, kumulative Bewertungen und
-  Social-Media-Zähler über lokal gespeicherte Snapshots verglichen
 - Zeitvergleiche zum vorherigen Zeitraum
 - Filter nach Plattform und Beitrag
 - geplante Hintergrundaktualisierung in einem wählbaren Intervall
-- Paketierung als Windows-EXE
+- CSV-Export und lokale Datenbanksicherung
+- weitere Designoptimierungen und gegebenenfalls Wechsel von CustomTkinter zu
+  einem moderneren GUI-Toolkit
+- private iOS-Anwendung ohne öffentliche App-Store-Veröffentlichung
 
 ## 6. Kennzahlen und Regeln
 
@@ -78,7 +80,7 @@ Der Abruf startet automatisch beim Öffnen der Anwendung und kann zusätzlich ü
 
 ## 8. Minimalistische Architektur
 
-- **Oberfläche:** Tkinter mit Dashboard, Import und Datenbestand.
+- **Oberfläche:** CustomTkinter auf Tkinter-Basis mit getrennten Dashboard-Seiten.
 - **Persistenz:** eine lokale SQLite-Datei mit Tabellen für Importe, Tageswerte und Beitragswerte.
 - **Import:** je Quelle eine kleine Spaltenzuordnung auf ein gemeinsames Datenmodell.
 - **Auswertung:** SQL-Abfragen und kleine Python-Funktionen; einfache Diagramme zunächst mit Tkinter Canvas.
@@ -91,12 +93,12 @@ Vorgesehene Eindeutigkeitsschlüssel:
 
 ## 9. Bedienablauf
 
-1. Beim ersten Start die vier Quellen im Einrichtungsassistenten verbinden.
-2. Anwendung später normal starten.
+1. Beim ersten Start `.local.env`, Schlüsseldateien und OAuth-Clients lokal einrichten.
+2. Anwendung anschließend normal starten.
 3. Das Dashboard öffnet sofort mit den zuletzt gespeicherten Werten.
 4. Im Hintergrund werden alle Quellen aktualisiert und einzeln als erfolgreich oder fehlerhaft markiert.
 5. Neue Werte und Zeitverläufe erscheinen ohne weitere Eingabe.
-6. Bei Bedarf „Jetzt aktualisieren“ oder CSV-Export verwenden.
+6. Bei Bedarf „Jetzt aktualisieren“ verwenden und den detaillierten Systemstatus öffnen oder kopieren.
 
 ## 10. Umsetzungsplan
 
@@ -138,14 +140,15 @@ wenn eine Quelle vorübergehend nicht erreichbar ist.
   öffentlicher Videos und lokale Konto-/Video-Snapshots.
 - Erledigt: Instagram Business Login über lokalen HTTPS-Callback, langlebige
   Tokens sowie paginierte Konto-, Medien- und medientypabhängige Insights.
-- Teilfehler, abgelaufene Tokens und erneute Autorisierung sauber behandeln.
-- Quellenvergleich und gemeinsame Kennzahlen ergänzen.
+- Erledigt: Teilfehler, Token-Erneuerung und erneute Autorisierung behandeln.
+- Erledigt: Quellenvergleich und gemeinsame Kennzahlen auf der Startseite.
 
 ### Phase 4 – Stabilisierung und Auslieferung
 
-- CSV-Export und Datenbank-Sicherung ergänzen.
-- Fehlerführung und leere Zustände überarbeiten.
-- Windows-Paketierung prüfen und Nutzerdokumentation vervollständigen.
+- Erledigt: Fehlerführung, letzte gültige Werte und detaillierter Systemstatus.
+- Erledigt: reproduzierbarer Windows-One-folder-Build mit Icon und externen Secrets.
+- Erledigt: Nutzerdokumentation und lokale Buildanleitung.
+- Später: CSV-Export und komfortable Datenbank-Sicherung.
 
 ## 11. Abnahmekriterien für Phase 1
 
@@ -177,12 +180,14 @@ wenn eine Quelle vorübergehend nicht erreichbar ist.
 - Creator-/Business-Umstellung bei Instagram ist grundsätzlich kein Hostingposten, kann aber Auswirkungen auf Kontofunktionen und Datenschutz-/Unternehmensangaben haben.
 - Nicht kalkulierbar sind eigener Einrichtungsaufwand, mögliche Review-Verzögerungen und zukünftige Preis- oder API-Änderungen der Plattformen.
 
-## 14. Offene fachliche Entscheidungen
+## 14. Roadmap-Entscheidungen nach dem MVP
 
-Diese Fragen blockieren die technische Grundstruktur nicht, müssen aber vor den jeweiligen Importprofilen bestätigt werden:
+Der MVP ist fachlich abgeschlossen. Für spätere Entwicklungsphasen bleiben
+folgende Entscheidungen bewusst offen:
 
-1. Kann und soll das Instagram-Konto auf Creator oder Business umgestellt werden?
-2. Wer besitzt die Adminrechte für App Store Connect sowie die Google-, TikTok- und Meta-Developer-Projekte?
-3. Bedeutet „Downloads“ Erstdownloads, Gesamtdownloads oder App Units?
-4. Welche Standardzeiträume sind am wichtigsten, beispielsweise 7, 30 und 90 Tage?
-5. Sollen Reichweite und Aufrufe getrennt oder als plattformspezifische Hauptkennzahl gezeigt werden?
+1. Welche konkreten Designverbesserungen rechtfertigen einen Toolkit-Wechsel?
+2. Welches GUI-Toolkit kann CustomTkinter ersetzen, ohne Datenlogik und lokale
+   Windows-Nutzung unnötig zu verkomplizieren?
+3. Soll eine private iOS-Anwendung später nativ entwickelt werden oder nur als
+   sichere Oberfläche für einen getrennten Datenservice dienen?
+4. Welche zusätzlichen Diagramme, Exporte und Zeitvergleiche liefern den größten Nutzen?

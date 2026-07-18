@@ -1,18 +1,22 @@
 # Lucky Test Analysetool
 
-Lokales Analyse-Dashboard für die iOS-App **Lucky Test**. Es soll App-Store- und Social-Media-Kennzahlen aus TikTok, Instagram und YouTube übersichtlich zusammenführen.
+Lokales Analyse-Dashboard für die iOS-App **Lucky Test**. Es führt App-Store- und Social-Media-Kennzahlen aus TikTok, Instagram und YouTube übersichtlich zusammen.
 
 ## Projektstand
 
-Der lokale App-Store-Kern und die erste YouTube-Integration sind umgesetzt. Beim Start ruft das Tool beide Quellen automatisch ab, speichert die Werte in SQLite und zeigt bei Fehlern weiterhin den letzten gültigen Stand.
+Der MVP ist abgeschlossen. Beim Start ruft das Tool App Store, YouTube, TikTok
+und Instagram automatisch über die offiziellen Schnittstellen ab, speichert
+Snapshots in SQLite und zeigt bei Fehlern weiterhin den letzten gültigen Stand.
+Die Anwendung läuft aus der Python-Entwicklungsumgebung oder als lokaler
+Windows-One-folder-Build.
 
-## Geplanter MVP
+## MVP-Umfang
 
 - lokale Desktop-Anwendung für Windows
 - automatischer Abruf beim Programmstart für App Store, TikTok, Instagram und YouTube
-- einmalige geführte Einrichtung der offiziellen API-Zugänge
+- einmalige lokale Einrichtung der offiziellen API-Zugänge über `.local.env`
 - Speicherung in einer lokalen SQLite-Datenbank
-- Dashboard mit aktuellen Kennzahlen, Zeitverlauf und Kanalvergleich
+- Dashboard mit aktuellen Kennzahlen, Zeitraumwahl und Quellenvergleich
 - sichtbarer Aktualisierungsstatus je Quelle und Weiterverwendung der letzten gültigen Daten bei API-Fehlern
 - keine inoffiziellen Login-Automationen und kein Scraping
 
@@ -108,6 +112,7 @@ späteren Update sollten `.local.env`, `.secrets` und `data` erhalten bleiben.
 ```powershell
 Copy-Item .local.env "dist\Lucky Test Analysetool\.local.env"
 Copy-Item .secrets "dist\Lucky Test Analysetool\.secrets" -Recurse -Force
+Copy-Item data\lucky_analyzer.sqlite3 "dist\Lucky Test Analysetool\data\lucky_analyzer.sqlite3" -Force
 ```
 
 Der Build ist bewusst ein Ordner und keine einzelne Datei. Das verbessert die
@@ -217,3 +222,18 @@ Angezeigt werden Profil-, Follower- und Medienzahlen, Konto-Insights der letzten
 30 Tage sowie Likes, Kommentare, Aufrufe, Reichweite, Speicherungen, Shares und
 – soweit Meta sie für den Medientyp liefert – Reel-Watchtime je Medium. Nicht
 verfügbare Insights werden als `–` dargestellt.
+
+## Roadmap nach dem MVP
+
+- weitere Design- und Bedienungsoptimierungen
+- Prüfung eines moderneren GUI-Toolkits als CustomTkinter, sofern der visuelle
+  und technische Mehrwert den Migrationsaufwand rechtfertigt
+- Diagramme, Zeitvergleiche und weiterführende Auswertungen
+- CSV-Export und komfortable lokale Datensicherung
+- private iOS-Anwendung ohne öffentliche App-Store-Veröffentlichung; die genaue
+  Architektur und sichere Anbindung an die Datenquellen werden erst in einer
+  späteren Phase geplant
+
+Die bestehende Windows-Anwendung bleibt die stabile MVP-Basis. Ein möglicher
+Toolkit-Wechsel oder eine iOS-Anwendung ist eine spätere Weiterentwicklung und
+nicht Bestandteil des abgeschlossenen MVP.
