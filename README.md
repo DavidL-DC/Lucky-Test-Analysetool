@@ -78,6 +78,42 @@ Tests ausführen:
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
+## Windows-Build erstellen
+
+Die Build-Abhängigkeiten einmalig installieren:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-build.txt
+```
+
+Danach den reproduzierbaren One-folder-Build starten. Der CMD-Starter umgeht
+nur für diesen Buildprozess eine möglicherweise restriktive
+PowerShell-Ausführungsrichtlinie:
+
+```powershell
+.\build_windows.cmd
+```
+
+Die fertige Anwendung liegt anschließend hier:
+
+```text
+dist/Lucky Test Analysetool/Lucky Test Analysetool.exe
+```
+
+Zugangsdaten werden nicht in die EXE eingebettet. Vor dem ersten Start müssen
+die vorhandene `.local.env` und der Ordner `.secrets` neben die EXE kopiert
+werden. Die lokale Datenbank wird im Unterordner `data` angelegt. Bei einem
+späteren Update sollten `.local.env`, `.secrets` und `data` erhalten bleiben.
+
+```powershell
+Copy-Item .local.env "dist\Lucky Test Analysetool\.local.env"
+Copy-Item .secrets "dist\Lucky Test Analysetool\.secrets" -Recurse -Force
+```
+
+Der Build ist bewusst ein Ordner und keine einzelne Datei. Das verbessert die
+Zuverlässigkeit von Tkinter/CustomTkinter und verkürzt den Programmstart. Für
+eine Weitergabe muss der vollständige Ordner kopiert werden.
+
 ## Kennzahlen in Phase 1
 
 - Erstdownloads, erneute Downloads, Gesamtdownloads und Updates
@@ -91,6 +127,43 @@ Tests ausführen:
 ## Oberfläche
 
 Das Dashboard verwendet eine iOS-inspirierte Glasoptik mit abgerundeten Karten, klarer Informationshierarchie und einer responsiven Scrollansicht. Über den Schalter in der Seitenleiste kann jederzeit zwischen einem anthrazitfarbenen Dark Mode und einem weiß-hellgrauen Light Mode gewechselt werden. Die lokal installierte Schrift Quicksand sorgt für eine runde, freundliche Typografie. Rezensionen lassen sich in einer kompakten Liste auswählen und vollständig lesen oder kopieren.
+
+Unterhalb der zentralen Zeitraumwahl trennt eine zweite Navigation die Inhalte in
+**Start**, **App Store**, **YouTube**, **TikTok** und **Instagram**. Beim Wechsel
+bleibt der gewählte Zeitraum erhalten und der Inhaltsbereich beginnt wieder oben.
+Die Startseite bündelt Downloads, DACH-Bewertung und Bewertungsanzahl,
+Sterneverteilung schriftlicher Rezensionen, Follower und Abonnenten,
+Videoaufrufe, Video-Likes, Kommentare, veröffentlichte Videos sowie den jüngsten
+Datenstand aller verbundenen Quellen.
+
+Das kompakte Datenquellen-Kästchen unten links ist anklickbar. Es öffnet den
+detaillierten Systemstatus mit den Zuständen aller vier Quellen, der letzten
+Systemmeldung und einer Kopierfunktion für Support und Fehlersuche.
+
+Das Lucky-Test-Symbol liegt zentral unter `assets/icon.png`, ersetzt den
+„LT“-Platzhalter in der Seitenleiste und wird für das Hauptfenster sowie den
+detaillierten Systemstatus als Fenstericon verwendet. Unter Windows setzt die
+Anwendung zusätzlich eine eigene App-Identität, damit nicht das allgemeine
+Python-Icon verwendet wird. Die daraus erzeugte Windows-Variante liegt unter
+`assets/icon.ico`.
+Fehlt die Datei in einer lokalen Kopie, startet das Tool weiterhin mit dem
+Standardicon des Betriebssystems.
+
+Hauptinhalt und Seitenleiste besitzen voneinander unabhängige Scrollbereiche.
+Dadurch bleiben Navigation, Quellenstatus und Darstellungsumschaltung auch bei
+kleineren Fensterhöhen erreichbar. Video-, Medien-, Rezensions- und Statuslisten
+scrollen weiterhin innerhalb ihres eigenen Bereichs, ohne die Hauptseite
+mitzubewegen.
+
+Die zentrale Zeitraumwahl bietet **7 Tage**, **30 Tage**, **90 Tage** und
+**Gesamt**. App-Store-Ereignisse und datierte schriftliche Rezensionen werden
+direkt gefiltert. Für kumulative Bewertungen, Follower, Aufrufe, Likes,
+Kommentare und weitere Social-Media-Zähler speichert jeder Abruf einen lokalen
+Snapshot. Sobald ein ausreichend alter Vergleichspunkt vorhanden ist, zeigt das
+Dashboard den im Zeitraum gemessenen Zuwachs mit `+` an. Bis dahin bleibt der
+aktuelle Wert sichtbar und wird mit `gesamt` gekennzeichnet. Frühere Zeiträume
+vor dem ersten lokalen Snapshot können die Plattform-APIs nicht rückwirkend
+rekonstruieren.
 
 ## YouTube-Kennzahlen
 
@@ -115,9 +188,11 @@ TIKTOK_CLIENT_SECRET=...
 
 Beim ersten Start öffnet sich die TikTok-Anmeldung im Browser. Das Zugriffstoken
 wird unter `.secrets/tiktok_token.json` gespeichert und automatisch erneuert.
-Angezeigt werden Follower, Following, Gesamtlikes, öffentliche Videoanzahl sowie
-Aufrufe, Likes, Kommentaranzahl und Shares für jedes öffentliche Video. Watchtime
-und Kommentartexte stellt die Display API nicht bereit.
+Angezeigt werden Follower, öffentliche Videoanzahl sowie die summierten Aufrufe,
+Likes, Kommentare und Shares aller öffentlichen Videos. Dieselben Werte werden
+zusätzlich je Video aufgeführt. „Folgt“ und TikToks redundanter Konto-Like-Zähler
+werden im Dashboard bewusst nicht angezeigt. Watchtime und Kommentartexte stellt
+die Display API nicht bereit.
 
 ## Instagram einrichten
 

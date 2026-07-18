@@ -2,6 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+from enum import Enum
+
+
+class AnalysisPeriod(Enum):
+    SEVEN_DAYS = ("7 Tage", 7)
+    THIRTY_DAYS = ("30 Tage", 30)
+    NINETY_DAYS = ("90 Tage", 90)
+    ALL_TIME = ("Gesamt", None)
+
+    def __init__(self, label: str, days: int | None):
+        self.label = label
+        self.days = days
+
+    @classmethod
+    def from_label(cls, label: str) -> "AnalysisPeriod":
+        for period in cls:
+            if period.label == label:
+                return period
+        raise ValueError(f"Unbekannter Analysezeitraum: {label}")
 
 
 @dataclass(frozen=True)
@@ -46,6 +65,7 @@ class DashboardMetrics:
     deletions: int = 0
     dach_average_rating: float | None = None
     dach_rating_count: int = 0
+    dach_rating_history_available: bool = False
     written_review_average: float | None = None
     written_review_count: int = 0
     written_review_distribution: tuple[int, int, int, int, int] = (0, 0, 0, 0, 0)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS storefront_ratings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS storefront_rating_snapshots (
+    captured_at TEXT NOT NULL, territory TEXT NOT NULL,
+    average_rating REAL NOT NULL, rating_count INTEGER NOT NULL,
+    PRIMARY KEY (captured_at, territory)
+);
+
 CREATE TABLE IF NOT EXISTS youtube_channel_snapshots (
     captured_at TEXT PRIMARY KEY, channel_id TEXT NOT NULL, title TEXT NOT NULL,
     subscribers INTEGER NOT NULL, views INTEGER NOT NULL, video_count INTEGER NOT NULL,
@@ -69,6 +75,12 @@ CREATE TABLE IF NOT EXISTS youtube_videos (
     duration_seconds INTEGER NOT NULL, views INTEGER NOT NULL, likes INTEGER NOT NULL,
     comments INTEGER NOT NULL, watch_minutes INTEGER, average_view_duration REAL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS youtube_video_snapshots (
+    captured_at TEXT NOT NULL, video_id TEXT NOT NULL,
+    views INTEGER NOT NULL, likes INTEGER NOT NULL, comments INTEGER NOT NULL,
+    watch_minutes INTEGER, PRIMARY KEY (captured_at, video_id)
 );
 
 CREATE TABLE IF NOT EXISTS tiktok_account_snapshots (
@@ -84,6 +96,12 @@ CREATE TABLE IF NOT EXISTS tiktok_videos (
     shares INTEGER NOT NULL, updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS tiktok_video_snapshots (
+    captured_at TEXT NOT NULL, video_id TEXT NOT NULL,
+    views INTEGER NOT NULL, likes INTEGER NOT NULL, comments INTEGER NOT NULL,
+    shares INTEGER NOT NULL, PRIMARY KEY (captured_at, video_id)
+);
+
 CREATE TABLE IF NOT EXISTS instagram_account_snapshots (
     captured_at TEXT PRIMARY KEY, account_id TEXT NOT NULL, username TEXT NOT NULL,
     followers INTEGER NOT NULL, following INTEGER NOT NULL, media_count INTEGER NOT NULL,
@@ -96,6 +114,13 @@ CREATE TABLE IF NOT EXISTS instagram_media (
     comments INTEGER NOT NULL, views INTEGER, reach INTEGER, saved INTEGER,
     shares INTEGER, total_interactions INTEGER, watch_time_ms INTEGER,
     average_watch_time_ms INTEGER, updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS instagram_media_snapshots (
+    captured_at TEXT NOT NULL, media_id TEXT NOT NULL,
+    views INTEGER, likes INTEGER NOT NULL, comments INTEGER NOT NULL,
+    reach INTEGER, saved INTEGER, shares INTEGER, total_interactions INTEGER,
+    watch_time_ms INTEGER, PRIMARY KEY (captured_at, media_id)
 );
 """
 
@@ -217,6 +242,7 @@ class Database:
 
     def upsert_storefront_ratings(self, ratings: Iterable[StorefrontRating]) -> None:
         now = datetime.now(timezone.utc).isoformat()
+        ratings = list(ratings)
         rows = [
             (rating.territory, rating.average_rating, rating.rating_count, now)
             for rating in ratings
@@ -234,8 +260,20 @@ class Database:
                 """,
                 rows,
             )
+            connection.executemany(
+                """INSERT INTO storefront_rating_snapshots(
+                       captured_at, territory, average_rating, rating_count
+                   ) VALUES (?, ?, ?, ?)""",
+                [(now, territory, average, count) for territory, average, count, _ in rows],
+            )
 
-    def dashboard_metrics(self) -> DashboardMetrics:
+    def dashboard_metrics(
+        self, period_days: int | None = None, as_of: date | None = None
+    ) -> DashboardMetrics:
+        cutoff = None
+        if period_days is not None:
+            reference_date = as_of or date.today()
+            cutoff = (reference_date - timedelta(days=period_days - 1)).isoformat()
         with self._connection() as connection:
             totals = connection.execute(
                 """
@@ -244,10 +282,14 @@ class Database:
                     COALESCE(SUM(redownloads), 0) AS redownloads,
                     COALESCE(SUM(updates), 0) AS updates,
                     COALESCE(SUM(installations), 0) AS installations,
-                    COALESCE(SUM(deletions), 0) AS deletions,
-                    MAX(metric_date) AS data_through
+                    COALESCE(SUM(deletions), 0) AS deletions
                 FROM daily_app_metrics
-                """
+                WHERE (? IS NULL OR metric_date >= ?)
+                """,
+                (cutoff, cutoff),
+            ).fetchone()
+            latest_metric = connection.execute(
+                "SELECT MAX(metric_date) AS data_through FROM daily_app_metrics"
             ).fetchone()
             last_run = connection.execute(
                 """
@@ -259,14 +301,18 @@ class Database:
                 """
                 SELECT AVG(rating) AS average_rating, COUNT(*) AS rating_count
                 FROM customer_reviews
+                WHERE (? IS NULL OR substr(created_at, 1, 10) >= ?)
                 """
+                , (cutoff, cutoff)
             ).fetchone()
             review_distribution_rows = connection.execute(
                 """
                 SELECT rating, COUNT(*) AS count
                 FROM customer_reviews
+                WHERE (? IS NULL OR substr(created_at, 1, 10) >= ?)
                 GROUP BY rating
                 """
+                , (cutoff, cutoff)
             ).fetchall()
             dach_summary = connection.execute(
                 """
@@ -280,6 +326,22 @@ class Database:
                 WHERE territory IN ('DE', 'AT', 'CH')
                 """
             ).fetchone()
+            dach_baseline = None
+            if cutoff is not None:
+                dach_baseline = connection.execute(
+                    """
+                    SELECT COALESCE(SUM(rating_count), 0) AS rating_count,
+                           COUNT(*) AS snapshot_count
+                    FROM storefront_rating_snapshots
+                    WHERE territory IN ('DE', 'AT', 'CH')
+                      AND captured_at = (
+                          SELECT MAX(captured_at)
+                          FROM storefront_rating_snapshots
+                          WHERE captured_at < ?
+                      )
+                    """,
+                    (cutoff,),
+                ).fetchone()
 
         first_downloads = int(totals["first_downloads"])
         redownloads = int(totals["redownloads"])
@@ -294,27 +356,48 @@ class Database:
             installations=int(totals["installations"]),
             deletions=int(totals["deletions"]),
             dach_average_rating=dach_summary["average_rating"],
-            dach_rating_count=int(dach_summary["rating_count"]),
+            dach_rating_count=max(
+                0,
+                int(dach_summary["rating_count"])
+                - (
+                    int(dach_baseline["rating_count"])
+                    if dach_baseline and dach_baseline["snapshot_count"] else 0
+                ),
+            ),
+            dach_rating_history_available=(
+                cutoff is None
+                or bool(dach_baseline and dach_baseline["snapshot_count"])
+            ),
             written_review_average=review_summary["average_rating"],
             written_review_count=int(review_summary["rating_count"]),
             written_review_distribution=tuple(review_distribution),
             last_success_at=(
                 datetime.fromisoformat(last_run["finished_at"]) if last_run else None
             ),
-            data_through=(date.fromisoformat(totals["data_through"]) if totals["data_through"] else None),
+            data_through=(
+                date.fromisoformat(latest_metric["data_through"])
+                if latest_metric["data_through"] else None
+            ),
         )
 
-    def latest_customer_reviews(self, limit: int = 100) -> list[CustomerReview]:
+    def latest_customer_reviews(
+        self, limit: int = 100, period_days: int | None = None
+    ) -> list[CustomerReview]:
+        cutoff = (
+            (date.today() - timedelta(days=period_days - 1)).isoformat()
+            if period_days is not None else None
+        )
         with self._connection() as connection:
             rows = connection.execute(
                 """
                 SELECT review_id, rating, title, body, reviewer_nickname,
                        created_at, territory
                 FROM customer_reviews
+                WHERE (? IS NULL OR substr(created_at, 1, 10) >= ?)
                 ORDER BY created_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (cutoff, cutoff, limit),
             ).fetchall()
         return [
             CustomerReview(
@@ -332,12 +415,17 @@ class Database:
     def save_youtube_metrics(
         self, channel: YouTubeChannelMetrics, videos: Iterable[YouTubeVideoMetrics]
     ) -> None:
+        videos = list(videos)
         captured_at = (channel.captured_at or datetime.now(timezone.utc)).isoformat()
         now = datetime.now(timezone.utc).isoformat()
         video_rows = [
             (v.video_id, v.title, v.published_at.isoformat(), v.duration_seconds,
              v.views, v.likes, v.comments, v.watch_minutes,
              v.average_view_duration, now)
+            for v in videos
+        ]
+        snapshot_rows = [
+            (captured_at, v.video_id, v.views, v.likes, v.comments, v.watch_minutes)
             for v in videos
         ]
         with self._connection() as connection:
@@ -357,6 +445,11 @@ class Database:
                    average_view_duration=excluded.average_view_duration,
                    updated_at=excluded.updated_at""",
                 video_rows,
+            )
+            connection.executemany(
+                """INSERT INTO youtube_video_snapshots
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                snapshot_rows,
             )
 
     def latest_youtube_channel(self) -> YouTubeChannelMetrics | None:
@@ -390,11 +483,16 @@ class Database:
     def save_tiktok_metrics(
         self, account: TikTokAccountMetrics, videos: Iterable[TikTokVideoMetrics]
     ) -> None:
+        videos = list(videos)
         captured_at = (account.captured_at or datetime.now(timezone.utc)).isoformat()
         now = datetime.now(timezone.utc).isoformat()
         rows = [
             (v.video_id, v.title, v.description, v.published_at.isoformat(),
              v.duration_seconds, v.views, v.likes, v.comments, v.shares, now)
+            for v in videos
+        ]
+        snapshot_rows = [
+            (captured_at, v.video_id, v.views, v.likes, v.comments, v.shares)
             for v in videos
         ]
         with self._connection() as connection:
@@ -412,6 +510,10 @@ class Database:
                    likes=excluded.likes, comments=excluded.comments, shares=excluded.shares,
                    updated_at=excluded.updated_at""",
                 rows,
+            )
+            connection.executemany(
+                "INSERT INTO tiktok_video_snapshots VALUES (?, ?, ?, ?, ?, ?)",
+                snapshot_rows,
             )
 
     def latest_tiktok_account(self) -> TikTokAccountMetrics | None:
@@ -442,6 +544,7 @@ class Database:
     def save_instagram_metrics(
         self, account: InstagramAccountMetrics, media: Iterable[InstagramMediaMetrics]
     ) -> None:
+        media = list(media)
         captured_at = (account.captured_at or datetime.now(timezone.utc)).isoformat()
         now = datetime.now(timezone.utc).isoformat()
         rows = [(
@@ -449,6 +552,11 @@ class Database:
             item.published_at.isoformat(), item.likes, item.comments, item.views,
             item.reach, item.saved, item.shares, item.total_interactions,
             item.watch_time_ms, item.average_watch_time_ms, now,
+        ) for item in media]
+        snapshot_rows = [(
+            captured_at, item.media_id, item.views, item.likes, item.comments,
+            item.reach, item.saved, item.shares, item.total_interactions,
+            item.watch_time_ms,
         ) for item in media]
         with self._connection() as connection:
             connection.execute(
@@ -461,6 +569,10 @@ class Database:
             connection.executemany(
                 "INSERT INTO instagram_media VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
+            )
+            connection.executemany(
+                "INSERT INTO instagram_media_snapshots VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                snapshot_rows,
             )
 
     def latest_instagram_account(self) -> InstagramAccountMetrics | None:
@@ -491,3 +603,128 @@ class Database:
             saved=r["saved"], shares=r["shares"], total_interactions=r["total_interactions"],
             watch_time_ms=r["watch_time_ms"], average_watch_time_ms=r["average_watch_time_ms"],
         ) for r in rows]
+
+    def social_period_growth(
+        self, source: str, period_days: int | None
+    ) -> dict[str, int | None] | None:
+        """Return measurable counter growth between two stored snapshots."""
+        if period_days is None:
+            return None
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=period_days)
+        ).isoformat()
+        definitions = {
+            "youtube": (
+                "youtube_channel_snapshots",
+                ("subscribers", "views", "video_count", "likes", "comments", "watch_minutes"),
+                "youtube_video_snapshots",
+                ("views", "likes", "comments", "watch_minutes"),
+            ),
+            "tiktok": (
+                "tiktok_account_snapshots",
+                ("followers", "following", "likes", "video_count"),
+                "tiktok_video_snapshots",
+                ("views", "likes", "comments", "shares"),
+            ),
+            "instagram": (
+                "instagram_account_snapshots",
+                ("followers", "following", "media_count"),
+                "instagram_media_snapshots",
+                ("views", "likes", "comments", "reach", "saved", "shares", "total_interactions", "watch_time_ms"),
+            ),
+        }
+        account_table, account_fields, item_table, item_fields = definitions[source]
+        with self._connection() as connection:
+            latest_at = connection.execute(
+                f"SELECT MAX(captured_at) FROM {account_table}"
+            ).fetchone()[0]
+            if not latest_at:
+                return None
+            baseline_at = connection.execute(
+                f"SELECT MAX(captured_at) FROM {account_table} WHERE captured_at <= ?",
+                (cutoff,),
+            ).fetchone()[0]
+            if not baseline_at:
+                return {"history_available": 0}
+
+            result: dict[str, int | None] = {"history_available": 1}
+            for field in account_fields:
+                current = connection.execute(
+                    f"SELECT {field} FROM {account_table} WHERE captured_at = ?",
+                    (latest_at,),
+                ).fetchone()[0]
+                baseline = connection.execute(
+                    f"SELECT {field} FROM {account_table} WHERE captured_at = ?",
+                    (baseline_at,),
+                ).fetchone()[0]
+                result[field] = self._counter_growth(current, baseline)
+            for field in item_fields:
+                current = connection.execute(
+                    f"SELECT SUM({field}) FROM {item_table} WHERE captured_at = ?",
+                    (latest_at,),
+                ).fetchone()[0]
+                baseline = connection.execute(
+                    f"SELECT SUM({field}) FROM {item_table} WHERE captured_at = ?",
+                    (baseline_at,),
+                ).fetchone()[0]
+                result[f"items_{field}"] = self._counter_growth(current, baseline)
+        return result
+
+    def social_item_period_growth(
+        self, source: str, period_days: int | None
+    ) -> dict[str, dict[str, int | None]] | None:
+        if period_days is None:
+            return None
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=period_days)
+        ).isoformat()
+        definitions = {
+            "youtube": (
+                "youtube_video_snapshots",
+                ("views", "likes", "comments", "watch_minutes"),
+            ),
+            "tiktok": (
+                "tiktok_video_snapshots",
+                ("views", "likes", "comments", "shares"),
+            ),
+            "instagram": (
+                "instagram_media_snapshots",
+                ("views", "likes", "comments", "reach", "saved", "shares", "watch_time_ms"),
+            ),
+        }
+        table, fields = definitions[source]
+        with self._connection() as connection:
+            latest_at = connection.execute(
+                f"SELECT MAX(captured_at) FROM {table}"
+            ).fetchone()[0]
+            baseline_at = connection.execute(
+                f"SELECT MAX(captured_at) FROM {table} WHERE captured_at <= ?",
+                (cutoff,),
+            ).fetchone()[0]
+            if not latest_at or not baseline_at:
+                return {}
+            columns = ", ".join(("video_id" if source != "instagram" else "media_id", *fields))
+            current_rows = connection.execute(
+                f"SELECT {columns} FROM {table} WHERE captured_at = ?", (latest_at,)
+            ).fetchall()
+            baseline_rows = connection.execute(
+                f"SELECT {columns} FROM {table} WHERE captured_at = ?", (baseline_at,)
+            ).fetchall()
+        id_column = "media_id" if source == "instagram" else "video_id"
+        baseline = {row[id_column]: row for row in baseline_rows}
+        return {
+            row[id_column]: {
+                field: self._counter_growth(
+                    row[field], baseline.get(row[id_column])[field]
+                    if baseline.get(row[id_column]) else 0,
+                )
+                for field in fields
+            }
+            for row in current_rows
+        }
+
+    @staticmethod
+    def _counter_growth(current: int | None, baseline: int | None) -> int | None:
+        if current is None:
+            return None
+        return max(0, int(current) - int(baseline or 0))

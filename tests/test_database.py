@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -29,6 +29,38 @@ class DatabaseTests(TestCase):
             self.assertEqual(metrics.total_downloads, 6)
             self.assertEqual(metrics.data_through, date(2026, 7, 15))
             self.assertIsNotNone(metrics.last_success_at)
+
+    def test_dashboard_metrics_filter_app_events_by_period(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            database.upsert_daily_metrics(
+                [
+                    DailyMetrics(date(2026, 7, 1), first_downloads=10, updates=1),
+                    DailyMetrics(date(2026, 7, 4), first_downloads=4, updates=2),
+                    DailyMetrics(date(2026, 7, 10), first_downloads=1, updates=3),
+                ]
+            )
+
+            metrics = database.dashboard_metrics(period_days=7, as_of=date(2026, 7, 10))
+
+            self.assertEqual(metrics.first_downloads, 5)
+            self.assertEqual(metrics.total_downloads, 5)
+            self.assertEqual(metrics.updates, 5)
+            self.assertEqual(metrics.data_through, date(2026, 7, 10))
+
+    def test_dashboard_metrics_keep_all_events_for_total_period(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            database.upsert_daily_metrics(
+                [
+                    DailyMetrics(date(2026, 1, 1), first_downloads=10),
+                    DailyMetrics(date(2026, 7, 10), first_downloads=2),
+                ]
+            )
+
+            metrics = database.dashboard_metrics(period_days=None)
+
+            self.assertEqual(metrics.first_downloads, 12)
 
     def test_customer_reviews_are_upserted_and_summarized(self) -> None:
         with TemporaryDirectory() as directory:
@@ -104,6 +136,35 @@ class DatabaseTests(TestCase):
             self.assertEqual(
                 [item.video_id for item in database.youtube_videos()], ["public"]
             )
+
+    def test_youtube_period_growth_uses_historical_snapshots(self) -> None:
+        with TemporaryDirectory() as directory:
+            database = Database(Path(directory) / "test.sqlite3")
+            old_time = datetime.now(timezone.utc) - timedelta(days=40)
+            new_time = datetime.now(timezone.utc)
+            old_channel = YouTubeChannelMetrics(
+                "channel", "Lucky", 100, 1_000, 1, 50, 10,
+                watch_minutes=200, captured_at=old_time,
+            )
+            new_channel = YouTubeChannelMetrics(
+                "channel", "Lucky", 112, 1_300, 1, 80, 16,
+                watch_minutes=260, captured_at=new_time,
+            )
+            old_video = YouTubeVideoMetrics(
+                "video", "Video", old_time, 60, 1_000, 50, 10, 200
+            )
+            new_video = YouTubeVideoMetrics(
+                "video", "Video", old_time, 60, 1_300, 80, 16, 260
+            )
+            database.save_youtube_metrics(old_channel, [old_video])
+            database.save_youtube_metrics(new_channel, [new_video])
+
+            totals = database.social_period_growth("youtube", 30)
+            items = database.social_item_period_growth("youtube", 30)
+
+            self.assertEqual(totals["subscribers"], 12)
+            self.assertEqual(totals["items_views"], 300)
+            self.assertEqual(items["video"]["likes"], 30)
 
     def test_tiktok_sync_replaces_the_public_video_list(self) -> None:
         with TemporaryDirectory() as directory:

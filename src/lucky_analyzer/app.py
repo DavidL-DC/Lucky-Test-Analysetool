@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import customtkinter as ctk
@@ -11,6 +13,7 @@ from .models import (
     CustomerReview, DashboardMetrics, YouTubeChannelMetrics, YouTubeVideoMetrics,
     TikTokAccountMetrics, TikTokVideoMetrics,
     InstagramAccountMetrics, InstagramMediaMetrics,
+    AnalysisPeriod,
 )
 from .instagram_service import InstagramService
 from .service import AnalyticsService
@@ -18,8 +21,16 @@ from .tiktok_service import TikTokService
 from .youtube_service import YouTubeService
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATABASE_PATH = PROJECT_ROOT / "data" / "lucky_analyzer.sqlite3"
+if getattr(sys, "frozen", False):
+    APP_ROOT = Path(sys.executable).resolve().parent
+    RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", APP_ROOT))
+else:
+    APP_ROOT = Path(__file__).resolve().parents[2]
+    RESOURCE_ROOT = APP_ROOT
+
+DATABASE_PATH = APP_ROOT / "data" / "lucky_analyzer.sqlite3"
+ICON_PATH = RESOURCE_ROOT / "assets" / "icon.png"
+WINDOWS_ICON_PATH = RESOURCE_ROOT / "assets" / "icon.ico"
 
 FONT = "Quicksand"
 BACKGROUND = ("#F3F4F6", "#0C0D0F")
@@ -44,17 +55,22 @@ class LuckyAnalyzerApp(ctk.CTk):
     def __init__(self) -> None:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        self._set_windows_app_identity()
         super().__init__(fg_color=BACKGROUND)
+        self.window_icon: tk.PhotoImage | None = None
+        self.sidebar_icon: tk.PhotoImage | None = None
+        self._apply_window_icon()
         self.title("Lucky Test Analysetool")
-        self.geometry("1240x840")
+        self._center_window(self, 1240, 840)
         self.minsize(1040, 720)
 
         self.database = Database(DATABASE_PATH)
-        self.service = AnalyticsService(PROJECT_ROOT, self.database)
-        self.youtube_service = YouTubeService(PROJECT_ROOT, self.database)
-        self.tiktok_service = TikTokService(PROJECT_ROOT, self.database)
-        self.instagram_service = InstagramService(PROJECT_ROOT, self.database)
+        self.service = AnalyticsService(APP_ROOT, self.database)
+        self.youtube_service = YouTubeService(APP_ROOT, self.database)
+        self.tiktok_service = TikTokService(APP_ROOT, self.database)
+        self.instagram_service = InstagramService(APP_ROOT, self.database)
         self.metric_values: dict[str, tk.StringVar] = {}
+        self.start_values: dict[str, tk.StringVar] = {}
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
         self.reviews_by_id: dict[str, CustomerReview] = {}
         self.review_buttons: dict[str, ctk.CTkButton] = {}
@@ -65,39 +81,67 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.youtube_status = tk.StringVar(value="YouTube · nicht verbunden")
         self.tiktok_status = tk.StringVar(value="TikTok · nicht verbunden")
         self.instagram_status = tk.StringVar(value="Instagram · nicht verbunden")
+        self.selected_period = AnalysisPeriod.THIRTY_DAYS
+        self.selected_page = "Start"
+        self.page_title = tk.StringVar(value="Start")
+        self.page_subtitle = tk.StringVar(
+            value="Alle wichtigen Signale von Lucky Test an einem Ort."
+        )
         self.dark_mode = tk.BooleanVar(value=True)
         self.last_status_message = "Bereit"
+        self.status_dialog: ctk.CTkToplevel | None = None
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
         self._build_sidebar()
         self._build_content()
-        self._show_metrics(self.database.dashboard_metrics())
+        self._show_metrics(self._period_dashboard_metrics())
         self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
         self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
         self._show_instagram(
             self.database.latest_instagram_account(), self.database.instagram_media()
         )
+        self._update_start_overview()
+        self.after(250, self._apply_window_icon)
         self.after(300, self.refresh_data)
 
     def _build_sidebar(self) -> None:
-        sidebar = ctk.CTkFrame(self, width=220, corner_radius=0, fg_color=SIDEBAR)
+        sidebar = ctk.CTkScrollableFrame(
+            self,
+            width=220,
+            corner_radius=0,
+            fg_color=SIDEBAR,
+            scrollbar_button_color=SCROLL,
+            scrollbar_button_hover_color=SCROLL_HOVER,
+        )
         sidebar.grid(row=0, column=0, sticky="nsew")
-        sidebar.grid_propagate(False)
-        sidebar.grid_rowconfigure(13, weight=1)
+        sidebar.grid_columnconfigure(0, weight=1)
 
         logo = ctk.CTkFrame(sidebar, fg_color="transparent")
         logo.grid(row=0, column=0, padx=22, pady=(28, 36), sticky="ew")
-        badge = ctk.CTkLabel(
-            logo,
-            text="LT",
-            width=44,
-            height=44,
-            corner_radius=14,
-            fg_color=ACCENT_STRONG,
-            text_color="white",
-            font=ctk.CTkFont(FONT, 18, "bold"),
-        )
+        if self.window_icon is not None:
+            reduction = max(1, round(self.window_icon.width() / 64))
+            self.sidebar_icon = self.window_icon.subsample(reduction, reduction)
+            badge = tk.Label(
+                logo,
+                image=self.sidebar_icon,
+                width=64,
+                height=64,
+                borderwidth=0,
+                highlightthickness=0,
+                background="#FFFFFF",
+            )
+        else:
+            badge = ctk.CTkLabel(
+                logo,
+                text="LT",
+                width=64,
+                height=64,
+                corner_radius=18,
+                fg_color=ACCENT_STRONG,
+                text_color="white",
+                font=ctk.CTkFont(FONT, 18, "bold"),
+            )
         badge.pack(side="left")
         ctk.CTkLabel(
             logo,
@@ -116,31 +160,31 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._nav_item(
             sidebar,
             2,
-            "dashboard",
+            "Start",
             "⌂",
-            "Dashboard",
-            lambda: self._navigate("dashboard", None),
+            "Start",
+            lambda: self._select_page("Start"),
             active=True,
         )
         self._nav_item(
             sidebar,
             3,
-            "ratings",
+            "App Store",
             "★",
-            "Bewertungen",
-            lambda: self._navigate("ratings", "rating_section"),
+            "App Store",
+            lambda: self._select_page("App Store"),
         )
         self._nav_item(
-            sidebar, 4, "youtube", "▶", "YouTube",
-            lambda: self._navigate("youtube", "youtube_section"),
+            sidebar, 4, "YouTube", "▶", "YouTube",
+            lambda: self._select_page("YouTube"),
         )
         self._nav_item(
-            sidebar, 5, "tiktok", "♪", "TikTok",
-            lambda: self._navigate("tiktok", "tiktok_section"),
+            sidebar, 5, "TikTok", "♪", "TikTok",
+            lambda: self._select_page("TikTok"),
         )
         self._nav_item(
-            sidebar, 6, "instagram", "◎", "Instagram",
-            lambda: self._navigate("instagram", "instagram_section"),
+            sidebar, 6, "Instagram", "◎", "Instagram",
+            lambda: self._select_page("Instagram"),
         )
 
         ctk.CTkLabel(
@@ -166,7 +210,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             button_hover_color="#E3E8EF",
             text_color=MUTED,
             font=ctk.CTkFont(FONT, 15, "bold"),
-        ).grid(row=13, column=0, padx=24, pady=(6, 4), sticky="sw")
+        ).grid(row=13, column=0, padx=24, pady=(28, 4), sticky="w")
 
         source_card = ctk.CTkFrame(
             sidebar,
@@ -175,6 +219,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             border_width=1,
             border_color=GLASS_BORDER,
         )
+        self.source_card = source_card
         source_card.grid(row=14, column=0, padx=18, pady=(8, 8), sticky="sew")
         ctk.CTkLabel(
             source_card,
@@ -202,6 +247,13 @@ class LuckyAnalyzerApp(ctk.CTk):
             source_card, textvariable=self.instagram_status, text_color=MUTED,
             justify="left", wraplength=155, font=ctk.CTkFont(FONT, 12),
         ).pack(anchor="w", padx=14, pady=(0, 12))
+        ctk.CTkLabel(
+            source_card,
+            text="Details anzeigen  ›",
+            text_color=ACCENT,
+            font=ctk.CTkFont(FONT, 12, "bold"),
+        ).pack(anchor="w", padx=14, pady=(0, 14))
+        self._make_status_card_clickable(source_card)
         ctk.CTkLabel(
             sidebar,
             text="Lokal · Privat · Version 0.1",
@@ -269,15 +321,15 @@ class LuckyAnalyzerApp(ctk.CTk):
         title_box.pack(side="left")
         ctk.CTkLabel(
             title_box,
-            text="Guten Überblick.",
+            textvariable=self.page_title,
             text_color=TEXT,
             font=ctk.CTkFont(FONT, 31, "bold"),
         ).pack(anchor="w")
         ctk.CTkLabel(
             title_box,
-            text="Alle wichtigen App-Store-Signale an einem Ort.",
+            textvariable=self.page_subtitle,
             text_color=MUTED,
-            font=ctk.CTkFont(FONT, 14),
+            font=ctk.CTkFont(FONT, 15),
         ).pack(anchor="w", pady=(3, 0))
         self.refresh_button = ctk.CTkButton(
             header,
@@ -292,25 +344,149 @@ class LuckyAnalyzerApp(ctk.CTk):
         )
         self.refresh_button.pack(side="right", pady=5)
 
+        period_bar = ctk.CTkFrame(self.content, fg_color="transparent")
+        period_bar.grid(row=1, column=0, padx=34, pady=(8, 12), sticky="ew")
+        ctk.CTkLabel(
+            period_bar, text="ZEITRAUM", text_color=MUTED,
+            font=ctk.CTkFont(FONT, 12, "bold"),
+        ).pack(side="left", padx=(2, 14))
+        self.period_selector = ctk.CTkSegmentedButton(
+            period_bar,
+            values=[period.label for period in AnalysisPeriod],
+            command=self._change_period,
+            height=38,
+            corner_radius=13,
+            selected_color=ACCENT_STRONG,
+            selected_hover_color="#6498FF",
+            unselected_color=GLASS,
+            unselected_hover_color=GLASS_HOVER,
+            border_width=1,
+            text_color=TEXT,
+            font=ctk.CTkFont(FONT, 13, "bold"),
+        )
+        self.period_selector.pack(side="left")
+        self.period_selector.set(self.selected_period.label)
+
+        page_bar = ctk.CTkFrame(self.content, fg_color="transparent")
+        page_bar.grid(row=2, column=0, padx=34, pady=(0, 14), sticky="ew")
+        ctk.CTkLabel(
+            page_bar, text="BEREICH", text_color=MUTED,
+            font=ctk.CTkFont(FONT, 12, "bold"),
+        ).pack(side="left", padx=(2, 14))
+        self.page_selector = ctk.CTkSegmentedButton(
+            page_bar,
+            values=["Start", "App Store", "YouTube", "TikTok", "Instagram"],
+            command=self._select_page,
+            height=38,
+            corner_radius=13,
+            selected_color=GLASS_HOVER,
+            selected_hover_color=GLASS_HOVER,
+            unselected_color=GLASS,
+            unselected_hover_color=GLASS,
+            border_width=1,
+            text_color=TEXT,
+            font=ctk.CTkFont(FONT, 13, "bold"),
+        )
+        self.page_selector.pack(side="left", fill="x", expand=True)
+        self.page_selector.set(self.selected_page)
+
         ctk.CTkLabel(
             self.content,
             textvariable=self.data_status,
             text_color=MUTED,
-            font=ctk.CTkFont(FONT, 13),
-        ).grid(row=1, column=0, padx=36, pady=(0, 20), sticky="w")
+            font=ctk.CTkFont(FONT, 14),
+        ).grid(row=3, column=0, padx=36, pady=(0, 20), sticky="w")
 
-        self._build_metric_cards(row=2)
-        self._build_rating_overview(row=3)
-        self._build_review_browser(row=4)
-        self._build_youtube_section(row=5)
-        self._build_tiktok_section(row=6)
-        self._build_instagram_section(row=7)
-        self._build_status_panel(row=8)
+        self._build_start_section(row=4)
+        self._build_metric_cards(row=5)
+        self._build_rating_overview(row=6)
+        self._build_review_browser(row=7)
+        self._build_youtube_section(row=8)
+        self._build_tiktok_section(row=9)
+        self._build_instagram_section(row=10)
+        self._build_status_panel(row=11)
+        self.status_section.grid_remove()
+        self._show_page()
+
+    def _build_start_section(self, row: int) -> None:
+        self.start_section = ctk.CTkFrame(self.content, fg_color="transparent")
+        self.start_section.grid(row=row, column=0, padx=28, pady=(8, 34), sticky="ew")
+        for column in range(3):
+            self.start_section.grid_columnconfigure(column, weight=1, uniform="start")
+        ctk.CTkLabel(
+            self.start_section,
+            text="Plattformübergreifende Übersicht",
+            text_color=TEXT,
+            font=ctk.CTkFont(FONT, 22, "bold"),
+        ).grid(row=0, column=0, columnspan=3, padx=7, pady=(4, 12), sticky="w")
+        ctk.CTkLabel(
+            self.start_section,
+            text="App Store und Social Media gemeinsam betrachtet.",
+            text_color=MUTED,
+            justify="left",
+            font=ctk.CTkFont(FONT, 14),
+        ).grid(row=1, column=0, columnspan=3, padx=7, pady=(0, 10), sticky="w")
+        cards = [
+            ("downloads", "Downloads", "↓", ACCENT),
+            ("rating", "Gesamtbewertung", "★", WARNING),
+            ("rating_count", "Bewertungen", "◉", "#B69CFF"),
+            ("followers", "Follower & Abonnenten", "+", SUCCESS),
+            ("views", "Videoaufrufe", "▶", ACCENT),
+            ("likes", "Video-Likes", "♥", "#FF7D9C"),
+            ("comments", "Kommentare", "◌", "#78D7FF"),
+            ("videos", "Videos & Medien", "◇", SUCCESS),
+            ("updated", "Datenstand", "↻", MUTED),
+        ]
+        for index, (key, label, icon, accent) in enumerate(cards):
+            self._start_card(
+                row=2 + index // 3,
+                column=index % 3,
+                key=key,
+                label=label,
+                icon=icon,
+                accent=accent,
+            )
+        distribution = self._glass_panel(self.start_section)
+        distribution.grid(
+            row=5, column=0, columnspan=3, padx=7, pady=(12, 0), sticky="ew"
+        )
+        ctk.CTkLabel(
+            distribution, text="Sterneverteilung der schriftlichen Rezensionen",
+            text_color=MUTED, font=ctk.CTkFont(FONT, 13, "bold"),
+        ).pack(anchor="w", padx=20, pady=(17, 5))
+        self.start_values["rating_distribution"] = tk.StringVar(value="Noch keine Daten")
+        ctk.CTkLabel(
+            distribution, textvariable=self.start_values["rating_distribution"],
+            text_color=TEXT, font=ctk.CTkFont(FONT, 15, "bold"),
+        ).pack(anchor="w", padx=20, pady=(0, 17))
+
+    def _start_card(
+        self, row: int, column: int, key: str, label: str,
+        icon: str, accent: str | tuple[str, str],
+    ) -> None:
+        card = self._glass_panel(self.start_section)
+        card.grid(row=row, column=column, padx=7, pady=7, sticky="nsew")
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=18, pady=(17, 7))
+        ctk.CTkLabel(
+            top, text=icon, width=32, height=32, corner_radius=10,
+            fg_color=GLASS_HOVER, text_color=accent,
+            font=ctk.CTkFont(FONT, 16, "bold"),
+        ).pack(side="left")
+        self.start_values[key] = tk.StringVar(value="–")
+        ctk.CTkLabel(
+            card, textvariable=self.start_values[key], text_color=TEXT,
+            font=ctk.CTkFont(FONT, 25, "bold"),
+        ).pack(anchor="w", padx=18)
+        ctk.CTkLabel(
+            card, text=label, text_color=MUTED,
+            font=ctk.CTkFont(FONT, 13),
+        ).pack(anchor="w", padx=18, pady=(2, 17))
 
     def _build_youtube_section(self, row: int) -> None:
         panel = self._glass_panel(self.content)
         self.youtube_section = panel
-        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        panel.grid(row=row, column=0, padx=35, pady=(16, 34), sticky="ew")
         ctk.CTkLabel(panel, text="YouTube Analytics", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
         self.youtube_channel_title = tk.StringVar(value="Noch nicht verbunden")
@@ -331,14 +507,14 @@ class LuckyAnalyzerApp(ctk.CTk):
             card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
             self.metric_values[key] = tk.StringVar(value="–")
             ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
-                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+                         font=ctk.CTkFont(FONT, 21, "bold")).pack(anchor="w", padx=16, pady=(15, 0))
             ctk.CTkLabel(card, text=label, text_color=MUTED,
-                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+                         font=ctk.CTkFont(FONT, 12)).pack(anchor="w", padx=16, pady=(2, 15))
         ctk.CTkLabel(panel, text="Alle Videos", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
         self.youtube_video_text = ctk.CTkTextbox(
             panel, height=250, corner_radius=14, fg_color=INNER_SURFACE,
-            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+            text_color=TEXT, font=ctk.CTkFont(FONT, 14), wrap="none",
         )
         self.youtube_video_text.pack(fill="x", padx=20, pady=(0, 20))
         self.youtube_video_text.configure(state="disabled")
@@ -347,7 +523,7 @@ class LuckyAnalyzerApp(ctk.CTk):
     def _build_tiktok_section(self, row: int) -> None:
         panel = self._glass_panel(self.content)
         self.tiktok_section = panel
-        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        panel.grid(row=row, column=0, padx=35, pady=(16, 34), sticky="ew")
         ctk.CTkLabel(panel, text="TikTok Analytics", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
         self.tiktok_account_title = tk.StringVar(value="Noch nicht verbunden")
@@ -355,27 +531,26 @@ class LuckyAnalyzerApp(ctk.CTk):
                      font=ctk.CTkFont(FONT, 13)).pack(anchor="w", padx=22, pady=(0, 12))
         cards = ctk.CTkFrame(panel, fg_color="transparent")
         cards.pack(fill="x", padx=15)
-        for column in range(4):
+        for column in range(3):
             cards.grid_columnconfigure(column, weight=1, uniform="tiktok")
         definitions = [
-            ("tt_followers", "Follower"), ("tt_following", "Folgt"),
-            ("tt_likes", "Gesamtlikes"), ("tt_videos", "Öffentliche Videos"),
-            ("tt_views", "Videoaufrufe"), ("tt_video_likes", "Video-Likes"),
+            ("tt_followers", "Follower"), ("tt_videos", "Öffentliche Videos"),
+            ("tt_views", "Videoaufrufe"), ("tt_video_likes", "Likes der Videos"),
             ("tt_comments", "Kommentare"), ("tt_shares", "Shares"),
         ]
         for index, (key, label) in enumerate(definitions):
             card = ctk.CTkFrame(cards, corner_radius=16, fg_color=INNER_SURFACE)
-            card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
+            card.grid(row=index // 3, column=index % 3, padx=6, pady=6, sticky="nsew")
             self.metric_values[key] = tk.StringVar(value="–")
             ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
-                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+                         font=ctk.CTkFont(FONT, 21, "bold")).pack(anchor="w", padx=16, pady=(15, 0))
             ctk.CTkLabel(card, text=label, text_color=MUTED,
-                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+                         font=ctk.CTkFont(FONT, 12)).pack(anchor="w", padx=16, pady=(2, 15))
         ctk.CTkLabel(panel, text="Alle öffentlichen Videos", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
         self.tiktok_video_text = ctk.CTkTextbox(
             panel, height=250, corner_radius=14, fg_color=INNER_SURFACE,
-            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+            text_color=TEXT, font=ctk.CTkFont(FONT, 14), wrap="none",
         )
         self.tiktok_video_text.pack(fill="x", padx=20, pady=(0, 20))
         self.tiktok_video_text.configure(state="disabled")
@@ -384,7 +559,7 @@ class LuckyAnalyzerApp(ctk.CTk):
     def _build_instagram_section(self, row: int) -> None:
         panel = self._glass_panel(self.content)
         self.instagram_section = panel
-        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        panel.grid(row=row, column=0, padx=35, pady=(16, 34), sticky="ew")
         ctk.CTkLabel(panel, text="Instagram Insights", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 20, "bold")).pack(anchor="w", padx=22, pady=(20, 2))
         self.instagram_account_title = tk.StringVar(value="Noch nicht verbunden")
@@ -405,14 +580,14 @@ class LuckyAnalyzerApp(ctk.CTk):
             card.grid(row=index // 4, column=index % 4, padx=6, pady=6, sticky="nsew")
             self.metric_values[key] = tk.StringVar(value="–")
             ctk.CTkLabel(card, textvariable=self.metric_values[key], text_color=TEXT,
-                         font=ctk.CTkFont(FONT, 19, "bold")).pack(anchor="w", padx=14, pady=(13, 0))
+                         font=ctk.CTkFont(FONT, 21, "bold")).pack(anchor="w", padx=16, pady=(15, 0))
             ctk.CTkLabel(card, text=label, text_color=MUTED,
-                         font=ctk.CTkFont(FONT, 11)).pack(anchor="w", padx=14, pady=(1, 13))
+                         font=ctk.CTkFont(FONT, 12)).pack(anchor="w", padx=16, pady=(2, 15))
         ctk.CTkLabel(panel, text="Alle Medien", text_color=TEXT,
                      font=ctk.CTkFont(FONT, 16, "bold")).pack(anchor="w", padx=22, pady=(16, 7))
         self.instagram_media_text = ctk.CTkTextbox(
             panel, height=270, corner_radius=14, fg_color=INNER_SURFACE,
-            text_color=TEXT, font=ctk.CTkFont(FONT, 13), wrap="none",
+            text_color=TEXT, font=ctk.CTkFont(FONT, 14), wrap="none",
         )
         self.instagram_media_text.pack(fill="x", padx=20, pady=(0, 20))
         self.instagram_media_text.configure(state="disabled")
@@ -477,7 +652,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             card,
             text=label,
             text_color=MUTED,
-            font=ctk.CTkFont(FONT, 12),
+            font=ctk.CTkFont(FONT, 13),
         ).place(x=18, y=91)
 
     def _build_rating_overview(self, row: int) -> None:
@@ -517,7 +692,7 @@ class LuckyAnalyzerApp(ctk.CTk):
             text_color=SUBTLE,
             wraplength=280,
             justify="left",
-            font=ctk.CTkFont(FONT, 11),
+            font=ctk.CTkFont(FONT, 12),
         ).pack(anchor="w", padx=22, pady=(0, 20))
 
         distribution = self._glass_panel(section)
@@ -526,7 +701,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         top.pack(fill="x", padx=22, pady=(18, 8))
         ctk.CTkLabel(
             top,
-            text="Schriftliche Rezensionen",
+            text="Sterneverteilung · schriftliche Rezensionen",
             text_color=TEXT,
             font=ctk.CTkFont(FONT, 16, "bold"),
         ).pack(side="left")
@@ -548,7 +723,7 @@ class LuckyAnalyzerApp(ctk.CTk):
                 text=f"{stars} ★",
                 width=34,
                 text_color=MUTED,
-                font=ctk.CTkFont(FONT, 11),
+                font=ctk.CTkFont(FONT, 12),
             ).pack(side="left")
             bar = ctk.CTkProgressBar(
                 line,
@@ -569,12 +744,13 @@ class LuckyAnalyzerApp(ctk.CTk):
             distribution,
             textvariable=self.metric_values["written_review_count"],
             text_color=SUBTLE,
-            font=ctk.CTkFont(FONT, 11),
+            font=ctk.CTkFont(FONT, 12),
         ).pack(anchor="e", padx=22, pady=(5, 15))
 
     def _build_review_browser(self, row: int) -> None:
         panel = self._glass_panel(self.content)
-        panel.grid(row=row, column=0, padx=35, pady=(16, 0), sticky="ew")
+        self.review_section = panel
+        panel.grid(row=row, column=0, padx=35, pady=(16, 34), sticky="ew")
         panel.grid_columnconfigure(0, weight=2)
         panel.grid_columnconfigure(1, weight=3)
         ctk.CTkLabel(
@@ -622,6 +798,7 @@ class LuckyAnalyzerApp(ctk.CTk):
 
     def _build_status_panel(self, row: int) -> None:
         panel = self._glass_panel(self.content)
+        self.status_section = panel
         panel.grid(row=row, column=0, padx=35, pady=(16, 32), sticky="ew")
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.pack(fill="x", padx=18, pady=(13, 4))
@@ -667,19 +844,47 @@ class LuckyAnalyzerApp(ctk.CTk):
     def _toggle_appearance(self) -> None:
         ctk.set_appearance_mode("dark" if self.dark_mode.get() else "light")
 
-    def _navigate(self, key: str, target_attribute: str | None) -> None:
-        self.update_idletasks()
-        canvas = self.content._parent_canvas
-        scroll_region = canvas.bbox("all")
-        total_height = scroll_region[3] if scroll_region else 1
-        target_y = 0 if target_attribute is None else getattr(self, target_attribute).winfo_y()
-        canvas.yview_moveto(max(0.0, min(1.0, target_y / total_height)))
+    def _select_page(self, page: str) -> None:
+        self.selected_page = page
+        if hasattr(self, "page_selector"):
+            self.page_selector.set(page)
+        self._show_page()
+
+    def _show_page(self) -> None:
+        if not hasattr(self, "start_section"):
+            return
+        page_sections = {
+            "Start": (self.start_section,),
+            "App Store": (
+                self.metric_section, self.rating_section, self.review_section,
+            ),
+            "YouTube": (self.youtube_section,),
+            "TikTok": (self.tiktok_section,),
+            "Instagram": (self.instagram_section,),
+        }
+        subtitles = {
+            "Start": "Alle wichtigen Signale von Lucky Test an einem Ort.",
+            "App Store": "Downloads, Bewertungen und Rezensionen im Überblick.",
+            "YouTube": "Kanalentwicklung und öffentliche Videos im Überblick.",
+            "TikTok": "Kontoentwicklung und öffentliche Videos im Überblick.",
+            "Instagram": "Konto- und Medien-Insights im Überblick.",
+        }
+        for sections in page_sections.values():
+            for section in sections:
+                section.grid_remove()
+        for section in page_sections[self.selected_page]:
+            section.grid()
+        self.page_title.set(self.selected_page)
+        self.page_subtitle.set(subtitles[self.selected_page])
         for button_key, button in self.nav_buttons.items():
-            active = button_key == key
+            active = button_key == self.selected_page
             button.configure(
                 fg_color=GLASS_HOVER if active else "transparent",
                 text_color=TEXT if active else MUTED,
             )
+        self.update_idletasks()
+        canvas = self.content._parent_canvas
+        canvas.yview_moveto(0)
 
     def _scroll_review_list(self, event) -> str:
         self.review_list._parent_canvas.yview_scroll(
@@ -734,6 +939,128 @@ class LuckyAnalyzerApp(ctk.CTk):
         self._set_status("App-Store-Daten werden aktualisiert …")
         threading.Thread(target=self._refresh_worker, daemon=True).start()
 
+    def _period_dashboard_metrics(self) -> DashboardMetrics:
+        return self.database.dashboard_metrics(period_days=self.selected_period.days)
+
+    def _change_period(self, label: str) -> None:
+        self.selected_period = AnalysisPeriod.from_label(label)
+        self._show_metrics(self._period_dashboard_metrics())
+        self._show_youtube(self.database.latest_youtube_channel(), self.database.youtube_videos())
+        self._show_tiktok(self.database.latest_tiktok_account(), self.database.tiktok_videos())
+        self._show_instagram(
+            self.database.latest_instagram_account(), self.database.instagram_media()
+        )
+        self._update_start_overview()
+
+    def _update_start_overview(self) -> None:
+        if not self.start_values:
+            return
+        metrics = self._period_dashboard_metrics()
+        youtube = self.database.latest_youtube_channel()
+        youtube_videos = self.database.youtube_videos()
+        tiktok = self.database.latest_tiktok_account()
+        tiktok_videos = self.database.tiktok_videos()
+        instagram = self.database.latest_instagram_account()
+        instagram_media = self.database.instagram_media()
+
+        youtube_growth = self.database.social_period_growth(
+            "youtube", self.selected_period.days
+        ) if youtube else None
+        tiktok_growth = self.database.social_period_growth(
+            "tiktok", self.selected_period.days
+        ) if tiktok else None
+        instagram_growth = self.database.social_period_growth(
+            "instagram", self.selected_period.days
+        ) if instagram else None
+
+        self.start_values["downloads"].set(self._format_number(metrics.total_downloads))
+        self.start_values["rating"].set(
+            "–" if metrics.dach_average_rating is None
+            else f"{metrics.dach_average_rating:.2f} ★"
+        )
+        if self.selected_period.days is None:
+            rating_count = self._format_number(metrics.dach_rating_count)
+        elif metrics.dach_rating_history_available:
+            rating_count = f"+{self._format_number(metrics.dach_rating_count)}"
+        else:
+            rating_count = f"{self._format_number(metrics.dach_rating_count)} gesamt"
+        self.start_values["rating_count"].set(rating_count)
+
+        followers = []
+        if youtube:
+            followers.append((youtube_growth, "subscribers", youtube.subscribers))
+        if tiktok:
+            followers.append((tiktok_growth, "followers", tiktok.followers))
+        if instagram:
+            followers.append((instagram_growth, "followers", instagram.followers))
+        self.start_values["followers"].set(self._aggregate_period_values(followers))
+
+        youtube_views = sum(video.views for video in youtube_videos)
+        tiktok_views = sum(video.views for video in tiktok_videos)
+        instagram_views = sum(item.views or 0 for item in instagram_media)
+        self.start_values["views"].set(self._aggregate_period_values([
+            (youtube_growth, "items_views", youtube_views) if youtube else None,
+            (tiktok_growth, "items_views", tiktok_views) if tiktok else None,
+            (instagram_growth, "items_views", instagram_views) if instagram else None,
+        ]))
+        self.start_values["likes"].set(self._aggregate_period_values([
+            (youtube_growth, "items_likes", sum(video.likes for video in youtube_videos)) if youtube else None,
+            (tiktok_growth, "items_likes", sum(video.likes for video in tiktok_videos)) if tiktok else None,
+            (instagram_growth, "items_likes", sum(item.likes for item in instagram_media)) if instagram else None,
+        ]))
+        self.start_values["comments"].set(self._aggregate_period_values([
+            (youtube_growth, "items_comments", sum(video.comments for video in youtube_videos)) if youtube else None,
+            (tiktok_growth, "items_comments", sum(video.comments for video in tiktok_videos)) if tiktok else None,
+            (instagram_growth, "items_comments", sum(item.comments for item in instagram_media)) if instagram else None,
+        ]))
+        published_items = [video.published_at for video in youtube_videos]
+        published_items.extend(video.published_at for video in tiktok_videos)
+        published_items.extend(
+            item.published_at for item in instagram_media
+            if item.media_type.upper() == "VIDEO"
+            or item.product_type.upper() in {"REELS", "REEL"}
+        )
+        if self.selected_period.days is None:
+            video_count = len(published_items)
+        else:
+            cutoff = datetime.now(timezone.utc) - timedelta(
+                days=self.selected_period.days
+            )
+            video_count = sum(published_at >= cutoff for published_at in published_items)
+        self.start_values["videos"].set(self._format_number(video_count))
+
+        timestamps = [
+            item for item in (
+                metrics.last_success_at,
+                youtube.captured_at if youtube else None,
+                tiktok.captured_at if tiktok else None,
+                instagram.captured_at if instagram else None,
+            ) if item is not None
+        ]
+        self.start_values["updated"].set(
+            max(timestamps).astimezone().strftime("%d.%m. %H:%M")
+            if timestamps else "–"
+        )
+        distribution = metrics.written_review_distribution
+        self.start_values["rating_distribution"].set(
+            "   ·   ".join(
+                f"{stars} ★  {self._format_number(distribution[stars - 1])}"
+                for stars in range(5, 0, -1)
+            )
+        )
+
+    def _aggregate_period_values(self, entries) -> str:
+        entries = [entry for entry in entries if entry is not None]
+        if not entries:
+            return "–"
+        current_total = sum(entry[2] or 0 for entry in entries)
+        if self.selected_period.days is None:
+            return self._format_number(current_total)
+        if not all(entry[0] and entry[0].get("history_available") for entry in entries):
+            return f"{self._format_number(current_total)} gesamt"
+        growth_total = sum((entry[0].get(entry[1]) or 0) for entry in entries)
+        return f"+{self._format_number(growth_total)}"
+
     def _refresh_worker(self) -> None:
         errors: list[str] = []
         metrics = self.database.dashboard_metrics()
@@ -768,6 +1095,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self, metrics, channel, videos, tiktok_account, tiktok_videos,
         instagram_account, instagram_media, errors
     ) -> None:
+        metrics = self._period_dashboard_metrics()
         self._show_metrics(metrics)
         if channel:
             self._show_youtube(channel, videos)
@@ -789,6 +1117,7 @@ class LuckyAnalyzerApp(ctk.CTk):
                 self.database.latest_instagram_account(), self.database.instagram_media()
             )
             self.instagram_status.set("Instagram · Hinweis")
+        self._update_start_overview()
         if errors:
             self._refresh_failed("\n\n".join(errors))
         else:
@@ -801,7 +1130,7 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.refresh_button.configure(state="normal", text="↻  Jetzt aktualisieren")
 
     def _refresh_failed(self, message: str) -> None:
-        self._show_metrics(self.database.dashboard_metrics())
+        self._show_metrics(self._period_dashboard_metrics())
         self.source_status.set("Teilweise aktuell · Details unten")
         self._set_status(f"Aktualisierung mit Hinweis:\n{message}")
         self.refresh_button.configure(state="normal", text="↻  Erneut versuchen")
@@ -812,10 +1141,131 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.status_text.delete("1.0", "end")
         self.status_text.insert("1.0", message)
         self.status_text.configure(state="disabled")
+        if self.status_dialog and self.status_dialog.winfo_exists():
+            self._fill_status_dialog()
 
     def _copy_status(self) -> None:
         self.clipboard_clear()
-        self.clipboard_append(self.last_status_message)
+        self.clipboard_append(self._detailed_status_text())
+
+    def _make_status_card_clickable(self, widget) -> None:
+        widget.bind("<Button-1>", lambda _event: self._open_status_dialog())
+        try:
+            widget.configure(cursor="hand2")
+        except (tk.TclError, ValueError):
+            pass
+        for child in widget.winfo_children():
+            self._make_status_card_clickable(child)
+
+    def _open_status_dialog(self) -> None:
+        if self.status_dialog and self.status_dialog.winfo_exists():
+            self.status_dialog.deiconify()
+            self.status_dialog.lift()
+            self.status_dialog.focus_force()
+            self._fill_status_dialog()
+            return
+        dialog = ctk.CTkToplevel(self)
+        self.status_dialog = dialog
+        dialog.title("Detaillierter Systemstatus")
+        if self.window_icon is not None:
+            dialog.iconphoto(False, self.window_icon)
+        self._apply_windows_icon(dialog)
+        dialog.after(250, lambda: self._apply_windows_icon(dialog))
+        self._center_window(dialog, 680, 500)
+        dialog.minsize(560, 400)
+        dialog.configure(fg_color=BACKGROUND)
+        dialog.transient(self)
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(2, weight=1)
+        ctk.CTkLabel(
+            dialog, text="Systemstatus", text_color=TEXT,
+            font=ctk.CTkFont(FONT, 25, "bold"),
+        ).grid(row=0, column=0, padx=28, pady=(26, 3), sticky="w")
+        ctk.CTkLabel(
+            dialog,
+            text="Aktueller Zustand der lokalen Anwendung und ihrer Datenquellen.",
+            text_color=MUTED,
+            font=ctk.CTkFont(FONT, 13),
+        ).grid(row=1, column=0, padx=28, pady=(0, 16), sticky="w")
+        self.status_dialog_text = ctk.CTkTextbox(
+            dialog, corner_radius=18, fg_color=GLASS, border_width=1,
+            border_color=GLASS_BORDER, text_color=TEXT,
+            font=ctk.CTkFont(FONT, 14), wrap="word",
+        )
+        self.status_dialog_text.grid(
+            row=2, column=0, padx=28, pady=(0, 16), sticky="nsew"
+        )
+        actions = ctk.CTkFrame(dialog, fg_color="transparent")
+        actions.grid(row=3, column=0, padx=28, pady=(0, 24), sticky="ew")
+        ctk.CTkButton(
+            actions, text="Status kopieren", command=self._copy_status,
+            width=140, height=38, corner_radius=13,
+            fg_color=ACCENT_STRONG, hover_color="#6498FF",
+            font=ctk.CTkFont(FONT, 13, "bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            actions, text="Schließen", command=dialog.destroy,
+            width=100, height=38, corner_radius=13,
+            fg_color=GLASS, hover_color=GLASS_HOVER, text_color=TEXT,
+            font=ctk.CTkFont(FONT, 13),
+        ).pack(side="right")
+        self._fill_status_dialog()
+
+    def _fill_status_dialog(self) -> None:
+        if not self.status_dialog or not self.status_dialog.winfo_exists():
+            return
+        self.status_dialog_text.configure(state="normal")
+        self.status_dialog_text.delete("1.0", "end")
+        self.status_dialog_text.insert("1.0", self._detailed_status_text())
+        self.status_dialog_text.configure(state="disabled")
+
+    def _detailed_status_text(self) -> str:
+        return (
+            f"Apple App Store\n{self.source_status.get()}\n\n"
+            f"YouTube\n{self.youtube_status.get()}\n\n"
+            f"TikTok\n{self.tiktok_status.get()}\n\n"
+            f"Instagram\n{self.instagram_status.get()}\n\n"
+            f"Letzte Systemmeldung\n{self.last_status_message}"
+        )
+
+    @staticmethod
+    def _center_window(window, width: int, height: int) -> None:
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _apply_window_icon(self) -> None:
+        if ICON_PATH.is_file():
+            try:
+                self.window_icon = tk.PhotoImage(file=str(ICON_PATH))
+                self.iconphoto(True, self.window_icon)
+            except tk.TclError:
+                self.window_icon = None
+        self._apply_windows_icon(self)
+
+    @staticmethod
+    def _apply_windows_icon(window) -> None:
+        if sys.platform != "win32" or not WINDOWS_ICON_PATH.is_file():
+            return
+        try:
+            window.iconbitmap(default=str(WINDOWS_ICON_PATH))
+        except tk.TclError:
+            pass
+
+    @staticmethod
+    def _set_windows_app_identity() -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "DovaCode.LuckyTestAnalyzer"
+            )
+        except (AttributeError, OSError):
+            pass
 
     def _show_metrics(self, metrics: DashboardMetrics) -> None:
         for name in (
@@ -830,9 +1280,13 @@ class LuckyAnalyzerApp(ctk.CTk):
         self.metric_values["dach_average_rating"].set(
             "–" if metrics.dach_average_rating is None else f"{metrics.dach_average_rating:.2f} ★"
         )
-        self.metric_values["dach_rating_count"].set(
-            f"{self._format_number(metrics.dach_rating_count)} Bewertungen"
-        )
+        if self.selected_period.days is None:
+            rating_count_text = f"{self._format_number(metrics.dach_rating_count)} Bewertungen"
+        elif metrics.dach_rating_history_available:
+            rating_count_text = f"+{self._format_number(metrics.dach_rating_count)} neue Bewertungen"
+        else:
+            rating_count_text = f"{self._format_number(metrics.dach_rating_count)} Bewertungen gesamt"
+        self.metric_values["dach_rating_count"].set(rating_count_text)
         self.metric_values["written_review_average"].set(
             "–" if metrics.written_review_average is None else f"{metrics.written_review_average:.2f} ★"
         )
@@ -851,13 +1305,19 @@ class LuckyAnalyzerApp(ctk.CTk):
             local_time = metrics.last_success_at.astimezone()
             data_date = metrics.data_through.strftime("%d.%m.%Y") if metrics.data_through else "–"
             self.data_status.set(
-                f"Zuletzt synchronisiert {local_time.strftime('%d.%m.%Y um %H:%M')} Uhr  ·  Datenstand {data_date}"
+                f"Zeitraum {self.selected_period.label}  ·  Zuletzt synchronisiert "
+                f"{local_time.strftime('%d.%m.%Y um %H:%M')} Uhr  ·  Datenstand {data_date}"
             )
         else:
-            self.data_status.set("Apple-Verbindung aktiv · Analytics-Berichte werden vorbereitet")
+            self.data_status.set(
+                f"Zeitraum {self.selected_period.label}  ·  "
+                "Apple-Verbindung aktiv · Analytics-Berichte werden vorbereitet"
+            )
 
     def _show_reviews(self) -> None:
-        reviews = self.database.latest_customer_reviews()
+        reviews = self.database.latest_customer_reviews(
+            period_days=self.selected_period.days
+        )
         self.reviews_by_id = {review.review_id: review for review in reviews}
         self.review_buttons.clear()
         for widget in self.review_list.winfo_children():
@@ -892,26 +1352,39 @@ class LuckyAnalyzerApp(ctk.CTk):
         if not channel:
             return
         self.youtube_channel_title.set(channel.title)
+        growth = self.database.social_period_growth(
+            "youtube", self.selected_period.days
+        )
         values = {
-            "yt_subscribers": self._format_number(channel.subscribers),
-            "yt_views": self._format_number(channel.views),
-            "yt_watch": "–" if channel.watch_minutes is None else self._format_watchtime(channel.watch_minutes),
-            "yt_videos": self._format_number(channel.video_count),
-            "yt_likes": self._format_number(channel.likes),
-            "yt_comments": self._format_number(channel.comments),
+            "yt_subscribers": self._period_counter(growth, "subscribers", channel.subscribers),
+            "yt_views": self._period_counter(growth, "views", channel.views),
+            "yt_watch": self._period_watchtime(growth, "watch_minutes", channel.watch_minutes),
+            "yt_videos": self._period_counter(growth, "video_count", channel.video_count),
+            "yt_likes": self._period_counter(growth, "items_likes", channel.likes),
+            "yt_comments": self._period_counter(growth, "items_comments", channel.comments),
             "yt_avg_duration": "–" if channel.average_view_duration is None else self._format_duration(channel.average_view_duration),
             "yt_updated": channel.captured_at.astimezone().strftime("%d.%m. %H:%M") if channel.captured_at else "–",
         }
         for key, value in values.items():
             self.metric_values[key].set(value)
+        item_growth = self.database.social_item_period_growth(
+            "youtube", self.selected_period.days
+        )
         lines = []
         for video in videos:
-            watch = "–" if video.watch_minutes is None else self._format_watchtime(video.watch_minutes)
+            delta = item_growth.get(video.video_id) if item_growth else None
+            views = self._item_counter(delta, "views", video.views)
+            likes = self._item_counter(delta, "likes", video.likes)
+            comments = self._item_counter(delta, "comments", video.comments)
+            watch_value = delta.get("watch_minutes") if delta else video.watch_minutes
+            watch = "–" if watch_value is None else self._format_watchtime(watch_value)
+            if delta and watch_value is not None:
+                watch = f"+{watch}"
             average = "–" if video.average_view_duration is None else self._format_duration(video.average_view_duration)
             lines.append(
                 f"{video.published_at.astimezone():%d.%m.%Y}  ·  {video.title}\n"
-                f"   {self._format_number(video.views)} Aufrufe  ·  {self._format_number(video.likes)} Likes  ·  "
-                f"{self._format_number(video.comments)} Kommentare  ·  {watch} Watchtime  ·  Ø {average}\n"
+                f"   {views} Aufrufe  ·  {likes} Likes  ·  "
+                f"{comments} Kommentare  ·  {watch} Watchtime  ·  Ø {average}\n"
             )
         self.youtube_video_text.configure(state="normal")
         self.youtube_video_text.delete("1.0", "end")
@@ -931,21 +1404,32 @@ class LuckyAnalyzerApp(ctk.CTk):
             "tt_comments": sum(video.comments for video in videos),
             "tt_shares": sum(video.shares for video in videos),
         }
+        growth = self.database.social_period_growth("tiktok", self.selected_period.days)
         values = {
-            "tt_followers": account.followers, "tt_following": account.following,
-            "tt_likes": account.likes, "tt_videos": account.video_count, **totals,
+            "tt_followers": self._period_counter(growth, "followers", account.followers),
+            "tt_videos": self._period_counter(growth, "video_count", account.video_count),
+            "tt_views": self._period_counter(growth, "items_views", totals["tt_views"]),
+            "tt_video_likes": self._period_counter(growth, "items_likes", totals["tt_video_likes"]),
+            "tt_comments": self._period_counter(growth, "items_comments", totals["tt_comments"]),
+            "tt_shares": self._period_counter(growth, "items_shares", totals["tt_shares"]),
         }
         for key, value in values.items():
-            self.metric_values[key].set(self._format_number(value))
+            self.metric_values[key].set(
+                value if isinstance(value, str) else self._format_number(value)
+            )
+        item_growth = self.database.social_item_period_growth(
+            "tiktok", self.selected_period.days
+        )
         lines = []
         for video in videos:
             title = video.title.strip() or video.description.strip() or "Ohne Titel"
+            delta = item_growth.get(video.video_id) if item_growth else None
             lines.append(
                 f"{video.published_at.astimezone():%d.%m.%Y}  ·  {title}\n"
-                f"   {self._format_number(video.views)} Aufrufe  ·  "
-                f"{self._format_number(video.likes)} Likes  ·  "
-                f"{self._format_number(video.comments)} Kommentare  ·  "
-                f"{self._format_number(video.shares)} Shares  ·  "
+                f"   {self._item_counter(delta, 'views', video.views)} Aufrufe  ·  "
+                f"{self._item_counter(delta, 'likes', video.likes)} Likes  ·  "
+                f"{self._item_counter(delta, 'comments', video.comments)} Kommentare  ·  "
+                f"{self._item_counter(delta, 'shares', video.shares)} Shares  ·  "
                 f"{self._format_duration(video.duration_seconds)}\n"
             )
         self.tiktok_video_text.configure(state="normal")
@@ -963,15 +1447,24 @@ class LuckyAnalyzerApp(ctk.CTk):
         def number(value: int | None) -> str:
             return "–" if value is None else self._format_number(value)
 
+        growth = self.database.social_period_growth("instagram", self.selected_period.days)
         values = {
-            "ig_followers": number(account.followers), "ig_following": number(account.following),
-            "ig_media": number(account.media_count), "ig_reach": number(account.reach),
-            "ig_views": number(account.views), "ig_profile_views": number(account.profile_views),
-            "ig_interactions": number(account.total_interactions),
+            "ig_followers": self._period_counter(growth, "followers", account.followers),
+            "ig_following": self._period_counter(growth, "following", account.following),
+            "ig_media": self._period_counter(growth, "media_count", account.media_count),
+            "ig_reach": self._period_counter(growth, "items_reach", account.reach),
+            "ig_views": self._period_counter(growth, "items_views", account.views),
+            "ig_profile_views": number(account.profile_views),
+            "ig_interactions": self._period_counter(
+                growth, "items_total_interactions", account.total_interactions
+            ),
             "ig_updated": account.captured_at.astimezone().strftime("%d.%m. %H:%M") if account.captured_at else "–",
         }
         for key, value in values.items():
             self.metric_values[key].set(value)
+        item_growth = self.database.social_item_period_growth(
+            "instagram", self.selected_period.days
+        )
         lines = []
         for item in media:
             title = item.caption.strip().replace("\n", " ") or "Ohne Beschreibung"
@@ -983,17 +1476,53 @@ class LuckyAnalyzerApp(ctk.CTk):
                 "–" if item.average_watch_time_ms is None
                 else self._format_watch_milliseconds(item.average_watch_time_ms)
             )
+            delta = item_growth.get(item.media_id) if item_growth else None
             lines.append(
                 f"{item.published_at.astimezone():%d.%m.%Y}  ·  {item.product_type or item.media_type}  ·  {title[:90]}\n"
-                f"   {number(item.views)} Aufrufe  ·  {self._format_number(item.likes)} Likes  ·  "
-                f"{self._format_number(item.comments)} Kommentare  ·  {number(item.reach)} Reichweite  ·  "
-                f"{number(item.saved)} gespeichert  ·  {number(item.shares)} Shares\n"
+                f"   {self._item_counter(delta, 'views', item.views)} Aufrufe  ·  "
+                f"{self._item_counter(delta, 'likes', item.likes)} Likes  ·  "
+                f"{self._item_counter(delta, 'comments', item.comments)} Kommentare  ·  "
+                f"{self._item_counter(delta, 'reach', item.reach)} Reichweite  ·  "
+                f"{self._item_counter(delta, 'saved', item.saved)} gespeichert  ·  "
+                f"{self._item_counter(delta, 'shares', item.shares)} Shares\n"
                 f"   Watchtime {watch}  ·  Ø {average}\n"
             )
         self.instagram_media_text.configure(state="normal")
         self.instagram_media_text.delete("1.0", "end")
         self.instagram_media_text.insert("1.0", "\n".join(lines) or "Noch keine Medien vorhanden.")
         self.instagram_media_text.configure(state="disabled")
+
+    def _period_counter(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if current is None:
+            return "–"
+        if growth is None:
+            return self._format_number(current)
+        if not growth.get("history_available"):
+            return f"{self._format_number(current)} gesamt"
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_number(value)}"
+
+    def _item_counter(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if growth is None:
+            return "–" if current is None else self._format_number(current)
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_number(value)}"
+
+    def _period_watchtime(
+        self, growth: dict[str, int | None] | None, key: str, current: int | None
+    ) -> str:
+        if current is None:
+            return "–"
+        if growth is None:
+            return self._format_watchtime(current)
+        if not growth.get("history_available"):
+            return f"{self._format_watchtime(current)} gesamt"
+        value = growth.get(key)
+        return "–" if value is None else f"+{self._format_watchtime(value)}"
 
     @staticmethod
     def _format_watch_milliseconds(milliseconds: int) -> str:
